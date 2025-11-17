@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "SmartTab - Smart Button Navigation",
+  "version": "1.0.0",
+  "description": "Intercepts Tab key to cycle through prominent buttons on the page",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage",
+    "downloads"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
