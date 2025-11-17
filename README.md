@@ -2,8 +2,12 @@
 
 ![tabtabgo](tabtabgo.png)
 
-Thanks to Cesar Guirao. It is a Chrome and Edge extension that intercepts the Tab key to cycle through the most prominent buttons on a webpage, with special support for Gmail's div-based buttons. Originally  based on 
-[https://doi.org/10.48550/arXiv.2511.10532](url)   please send comments or feedback to jose.berengueres (at) nu.edu.kz
+Thanks to Cesar Guirao. It is a Chrome and Edge extension that intercepts the Tab key to cycle through the most prominent buttons on a webpage, with special support for Gmail's div-based buttons. 
+
+This webpage, with special support for Gmail's div-based buttons, was originally based on
+[Berengueres et al., 2025](https://doi.org/10.48550/arXiv.2511.10532).  
+Please send comments or feedback to jose.berengueres (at) nu.edu.kz.
+
 
 ## Features
 - **Tab Key Interception**: Intercepts the Tab key to cycle through prominent buttons
