@@ -61,7 +61,7 @@ The extension:
 - The popup appears automatically when buttons are detected
 - Button detection happens on page load and updates dynamically as the page changes
 
-## Other notabel mice
+## Other mice
 
 - Berengueres, J., & Yu, T. (2025). *Flexible Ergonomics: Can a Flexible Mouse Fix That Wrist Pain?* **Interactions**, 32(5), 32–37. https://doi.org/10.1145/3759241
 
