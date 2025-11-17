@@ -1,10 +1,9 @@
 # TabTab Go  - Smart Button Navigation Chrome Extension to reduce RSI and CTS motion
 
-(c) Cesar Guirao 2025
+![tabtabgo](tabtabgo.png)
 
-A Chrome extension that intercepts the Tab key to cycle through the most prominent buttons on a webpage, with special support for Gmail's div-based buttons. Originally  based on 
-https://doi.org/10.48550/arXiv.2511.10532 
-Pat. pend.
+Thanks to Cesar Guirao. It is a Chrome and Edge extension that intercepts the Tab key to cycle through the most prominent buttons on a webpage, with special support for Gmail's div-based buttons. Originally  based on 
+[https://doi.org/10.48550/arXiv.2511.10532](url)   please send comments or feedback to jose.berengueres (at) nu.edu.kz
 
 ## Features
 - **Tab Key Interception**: Intercepts the Tab key to cycle through prominent buttons
@@ -19,16 +18,11 @@ Pat. pend.
 
 ## Installation
 
-1. Clone or download this repository
-2. **Create icon files** (optional but recommended):
-   - Open `create-icons.html` in a browser
-   - Right-click each canvas and save as `icon16.png`, `icon48.png`, and `icon128.png`
-   - Or create your own 16x16, 48x48, and 128x128 pixel icons
-3. Open Chrome and navigate to `chrome://extensions/`
-4. Enable "Developer mode" (toggle in top-right)
-5. Click "Load unpacked"
-6. Select the folder containing this extension
-
+1. Open Chrome and navigate to `chrome://extensions/`
+2. Enable "Developer mode" (toggle in top-right)
+3. Click "Load unpacked"--> download the zip from above 
+4. close and restart browser
+5. use tab and space or enter to select   
 ## Usage
 
 1. Navigate to any webpage (works especially well with Gmail)
