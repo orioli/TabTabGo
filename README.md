@@ -1,6 +1,6 @@
 # TabTab Go  - Smart Button Navigation Chrome Extension to reduce RSI and CTS motion
 
-![tabtabgo](tabtabgo.png)
+![tabtabgo](output.gif)
 
 Thanks to Cesar Guirao. It is a Chrome and Edge extension that intercepts the Tab key to cycle through the most prominent buttons on a webpage, with special support for Gmail's div-based buttons. 
 
