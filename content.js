@@ -12,6 +12,20 @@
   let statsPopupElement = null;
   let statsOutsideClickHandler = null;
   let statsAnchorElement = null;
+  let colorPickerPopupElement = null;
+  let colorPickerOutsideClickHandler = null;
+  let selectedColor = '#10b981'; // Default emerald green
+  // Color palette - up to 20 colors including pink, yellow, lime, teal, emerald green, and pastels
+  const COLOR_PALETTE = [
+    '#f472b6', // mypink
+    '#10b981', // Emerald green (default)
+    '#e8b4a5', // Warm pastel salmon
+    '#d7a7b8', // Muted warm pink
+    '#e4c28d', // Soft muted amber
+    '#c9d6a3', // Warm moss green pastel
+    '#ec4899', 
+    '#fda4af',
+    '#fb7185'];
   const DETECTION_DEBOUNCE_MS = 500; // Wait 500ms after last mutation before re-detecting
   const AUTO_CLOSE_MS = null; // Disable auto-close timer (was 5000ms)
   const POPUP_OPACITY = 0.93; // Popup opacity
@@ -19,6 +33,7 @@
   const LASSO_BORDER_WIDTH = 4; // Width of the lasso border in pixels
   const LASSO_GLOW_WIDTH = 6; // Width of the lasso glow effect in pixels
   const PIXELS_PER_ACCEPTED = 600; // Estimated distance saved per accepted suggestion (px)
+  const MAX_TOP_BUTTONS = 5; // Maximum number of top buttons to show
   function formatDateTime(date) {
     return date.toLocaleString(undefined, {
       month: 'short',
@@ -102,6 +117,200 @@
       hideStatsPopup();
     } else {
       showStatsPopup(anchorElement);
+    }
+  }
+  
+  // Color picker functions
+  function hideColorPickerPopup() {
+    if (colorPickerOutsideClickHandler) {
+      document.removeEventListener('click', colorPickerOutsideClickHandler, true);
+      colorPickerOutsideClickHandler = null;
+    }
+    if (colorPickerPopupElement) {
+      colorPickerPopupElement.remove();
+      colorPickerPopupElement = null;
+    }
+  }
+  
+  function showColorPickerPopup(anchorElement) {
+    if (!colorPickerPopupElement) {
+      colorPickerPopupElement = document.createElement('div');
+      colorPickerPopupElement.id = 'smarttab-color-picker-popup';
+      document.body.appendChild(colorPickerPopupElement);
+    }
+    
+    colorPickerPopupElement.innerHTML = `
+      <div class="smarttab-color-picker-grid">
+        ${COLOR_PALETTE.map(color => `
+          <div class="smarttab-color-option ${color === selectedColor ? 'selected' : ''}" 
+               data-color="${color}" 
+               style="background-color: ${color};"
+               title="${color}">
+            ${color === selectedColor ? '✓' : ''}
+          </div>
+        `).join('')}
+      </div>
+    `;
+    
+    const anchorRect = anchorElement.getBoundingClientRect();
+    const popupWidth = 200;
+    colorPickerPopupElement.style.position = 'absolute';
+    colorPickerPopupElement.style.top = `${window.scrollY + anchorRect.bottom + 8}px`;
+    colorPickerPopupElement.style.left = `${window.scrollX + anchorRect.right - popupWidth}px`;
+    colorPickerPopupElement.style.width = `${popupWidth}px`;
+    colorPickerPopupElement.style.display = 'block';
+    
+    // Add click handlers for color options
+    const colorOptions = colorPickerPopupElement.querySelectorAll('.smarttab-color-option');
+    colorOptions.forEach(option => {
+      option.addEventListener('click', (event) => {
+        event.stopPropagation();
+        const newColor = option.getAttribute('data-color');
+        changeColor(newColor);
+        hideColorPickerPopup();
+      });
+    });
+    
+    if (!colorPickerOutsideClickHandler) {
+      colorPickerOutsideClickHandler = (event) => {
+        if (!colorPickerPopupElement) return;
+        if (colorPickerPopupElement.contains(event.target)) return;
+        if (anchorElement && anchorElement.contains(event.target)) return;
+        hideColorPickerPopup();
+      };
+      document.addEventListener('click', colorPickerOutsideClickHandler, true);
+    }
+  }
+  
+  function toggleColorPickerPopup(anchorElement) {
+    if (colorPickerPopupElement && colorPickerPopupElement.style.display === 'block') {
+      hideColorPickerPopup();
+    } else {
+      showColorPickerPopup(anchorElement);
+    }
+  }
+  
+  function changeColor(color) {
+    selectedColor = color;
+    
+    // Update popup window border and box-shadow
+    if (popupElement) {
+      const borderColor = hexToRgba(color, 0.4);
+      popupElement.style.border = `4px solid ${borderColor}`;
+      popupElement.style.boxShadow = `0 8px 24px ${hexToRgba(color, 0.25)}, 0 12px 32px rgba(0, 0, 0, 0.15)`;
+      
+      // Update popup header background
+      const header = popupElement.querySelector('.smarttab-header');
+      if (header) {
+        header.style.background = color;
+      }
+      
+      // Update active item styles
+      const activeItem = popupElement.querySelector('.smarttab-item.active');
+      if (activeItem) {
+        const lightBgColor = getLightBackgroundColor(color);
+        activeItem.style.backgroundColor = lightBgColor;
+        activeItem.style.borderLeftColor = color;
+        
+        // Update active item text color
+        const activeText = activeItem.querySelector('.smarttab-text');
+        if (activeText) {
+          activeText.style.color = color;
+        }
+        
+        // Update active item number badge background
+        const activeNumber = activeItem.querySelector('.smarttab-number');
+        if (activeNumber) {
+          activeNumber.style.background = color;
+        }
+      }
+    }
+    
+    // Update existing lasso if present
+    if (currentLassoElement) {
+      updateLassoColor(color);
+    }
+    
+    // Save to storage
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.set({ smarttabColor: color });
+    } else {
+      try {
+        localStorage.setItem('smarttabColor', color);
+      } catch (e) {
+        console.warn('Could not save color:', e);
+      }
+    }
+  }
+  
+  function updateLassoColor(color) {
+    if (!currentLassoElement) return;
+    
+    // Create a darker version for contrast
+    const rgb = hexToRgb(color);
+    const darkerColor = `rgb(${Math.max(0, rgb.r - 30)}, ${Math.max(0, rgb.g - 30)}, ${Math.max(0, rgb.b - 30)})`;
+    const lighterColor = `rgb(${Math.min(255, rgb.r + 50)}, ${Math.min(255, rgb.g + 50)}, ${Math.min(255, rgb.b + 50)})`;
+    
+    // Update pattern
+    const pattern = currentLassoElement.querySelector('pattern[id="emerald-stripes"]');
+    if (pattern) {
+      const rect1 = pattern.querySelector('rect:nth-child(1)');
+      const rect2 = pattern.querySelector('rect:nth-child(2)');
+      if (rect1) rect1.setAttribute('fill', lighterColor);
+      if (rect2) rect2.setAttribute('fill', darkerColor);
+    }
+    
+    // Update glow
+    const glowRect = currentLassoElement.querySelector('rect[filter="url(#blur-filter)"]');
+    if (glowRect) {
+      glowRect.setAttribute('stroke', lighterColor);
+    }
+    
+    // Update border
+    const lassoRect = currentLassoElement.querySelector('rect[stroke="url(#emerald-stripes)"]');
+    if (lassoRect) {
+      // Pattern is already updated above
+    }
+  }
+  
+  function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+      r: parseInt(result[1], 16),
+      g: parseInt(result[2], 16),
+      b: parseInt(result[3], 16)
+    } : { r: 16, g: 185, b: 129 }; // Default emerald
+  }
+  
+  function hexToRgba(hex, alpha) {
+    const rgb = hexToRgb(hex);
+    return `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${alpha})`;
+  }
+  
+  function getLightBackgroundColor(hex) {
+    // Create a very light, pastel-like version of the color for active item background
+    // Mix with white (around 85-90% white) to create a subtle tint
+    const rgb = hexToRgb(hex);
+    const mixFactor = 0.87; // Mix with 87% white
+    return `rgb(${Math.round(255 - (255 - rgb.r) * (1 - mixFactor))}, ${Math.round(255 - (255 - rgb.g) * (1 - mixFactor))}, ${Math.round(255 - (255 - rgb.b) * (1 - mixFactor))})`;
+  }
+  
+  function loadSavedColor() {
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      chrome.storage.local.get(['smarttabColor'], (result) => {
+        if (result.smarttabColor) {
+          changeColor(result.smarttabColor);
+        }
+      });
+    } else {
+      try {
+        const savedColor = localStorage.getItem('smarttabColor');
+        if (savedColor) {
+          changeColor(savedColor);
+        }
+      } catch (e) {
+        console.warn('Could not load color:', e);
+      }
     }
   }
   
@@ -191,8 +400,8 @@
       // Sort by prominence score
       buttonsWithScores.sort((a, b) => b.score - a.score);
 
-      // Get top 5 real buttons
-      const topButtons = buttonsWithScores.slice(0, 5).map(({ score, ...btn }) => btn);
+      // Get top real buttons
+      const topButtons = buttonsWithScores.slice(0, MAX_TOP_BUTTONS).map(({ score, ...btn }) => btn);
       
       // Add fake options
       const fakeOptions = [
@@ -455,6 +664,11 @@
     const rectWidth = rect.width + padding * 2;
     const rectHeight = rect.height + padding * 2;
     
+    // Get color values based on selected color
+    const rgb = hexToRgb(selectedColor);
+    const darkerColor = `rgb(${Math.max(0, rgb.r - 30)}, ${Math.max(0, rgb.g - 30)}, ${Math.max(0, rgb.b - 30)})`;
+    const lighterColor = `rgb(${Math.min(255, rgb.r + 50)}, ${Math.min(255, rgb.g + 50)}, ${Math.min(255, rgb.b + 50)})`;
+    
     // Create SVG overlay
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.id = 'smarttab-lasso';
@@ -479,13 +693,13 @@
     const rect1 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     rect1.setAttribute('width', '10');
     rect1.setAttribute('height', '3');
-    rect1.setAttribute('fill', '#34d399'); // Brighter emerald
+    rect1.setAttribute('fill', lighterColor);
     
     const rect2 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     rect2.setAttribute('x', '10');
     rect2.setAttribute('width', '10');
     rect2.setAttribute('height', '3');
-    rect2.setAttribute('fill', '#047857'); // Darker emerald for higher contrast
+    rect2.setAttribute('fill', darkerColor);
     
     const animate = document.createElementNS('http://www.w3.org/2000/svg', 'animateTransform');
     animate.setAttribute('attributeName', 'patternTransform');
@@ -518,13 +732,13 @@
     glowRect.setAttribute('height', rectHeight);
     glowRect.setAttribute('rx', '6');
     glowRect.setAttribute('ry', '6');
-    glowRect.setAttribute('stroke', '#34d399'); // Brighter emerald for glow
+    glowRect.setAttribute('stroke', lighterColor);
     glowRect.setAttribute('stroke-width', LASSO_GLOW_WIDTH);
     glowRect.setAttribute('fill', 'none');
     glowRect.setAttribute('opacity', '0.6'); // Increased opacity for better visibility
     glowRect.setAttribute('filter', 'url(#blur-filter)');
     
-    // Create rounded rectangle with emerald lasso effect
+    // Create rounded rectangle with lasso effect
     const lassoRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     lassoRect.setAttribute('x', rectX);
     lassoRect.setAttribute('y', rectY);
@@ -666,25 +880,36 @@
     popupElement = document.createElement('div');
     popupElement.id = 'smarttab-popup';
     popupElement.style.opacity = POPUP_OPACITY;
+    const borderColor = hexToRgba(selectedColor, 0.4);
+    popupElement.style.border = `4px solid ${borderColor}`;
+    popupElement.style.boxShadow = `0 8px 24px ${hexToRgba(selectedColor, 0.25)}, 0 12px 32px rgba(0, 0, 0, 0.15)`;
     popupElement.innerHTML = `
-      <div class="smarttab-header">
+      <div class="smarttab-header" style="background: ${selectedColor}">
         <div class="smarttab-title-section">
           <span class="smarttab-title">TabTab Go</span>
           <span class="smarttab-copyright">by cesar guirao & jose berengueres</span>
         </div>
         <div class="smarttab-header-actions">
+          <button class="smarttab-color-picker" id="smarttab-color-picker-btn" title="Change color">🎨</button>
           <button class="smarttab-stats" id="smarttab-stats-btn" title="Session stats">📊</button>
           <button class="smarttab-download" id="smarttab-download-btn" title="Download logs">⬇</button>
           <button class="smarttab-close" id="smarttab-close-btn" title="Close">×</button>
         </div>
       </div>
       <div class="smarttab-list" id="smarttab-list">
-        ${detectedButtons.map((btn, index) => `
-          <div class="smarttab-item ${index === currentIndex ? 'active' : ''}" data-index="${index}">
-            <span class="smarttab-number">${index + 1}</span>
-            <span class="smarttab-text">${escapeHtml(btn.text)}</span>
+        ${detectedButtons.map((btn, index) => {
+          const isActive = index === currentIndex;
+          const activeBgColor = isActive ? getLightBackgroundColor(selectedColor) : '';
+          const activeStyle = isActive ? `style="background-color: ${activeBgColor}; border-left-color: ${selectedColor};"` : '';
+          return `
+          <div class="smarttab-item ${isActive ? 'active' : ''}" 
+               data-index="${index}"
+               ${activeStyle}>
+            <span class="smarttab-number" ${isActive ? `style="background: ${selectedColor};"` : ''}>${index + 1}</span>
+            <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}</span>
           </div>
-        `).join('')}
+        `;
+        }).join('')}
       </div>
     `;
 
@@ -695,6 +920,14 @@
     if (closeBtn) {
       closeBtn.addEventListener('click', () => {
         hidePopup();
+      });
+    }
+    
+    const colorPickerBtn = popupElement.querySelector('#smarttab-color-picker-btn');
+    if (colorPickerBtn) {
+      colorPickerBtn.addEventListener('click', (event) => {
+        event.stopPropagation();
+        toggleColorPickerPopup(colorPickerBtn);
       });
     }
     
@@ -724,12 +957,19 @@
     
     const list = popupElement.querySelector('#smarttab-list');
     if (list) {
-      list.innerHTML = detectedButtons.map((btn, index) => `
-        <div class="smarttab-item ${index === currentIndex ? 'active' : ''}" data-index="${index}">
-          <span class="smarttab-number">${index + 1}</span>
-          <span class="smarttab-text">${escapeHtml(btn.text)}</span>
+      list.innerHTML = detectedButtons.map((btn, index) => {
+        const isActive = index === currentIndex;
+        const activeBgColor = isActive ? getLightBackgroundColor(selectedColor) : '';
+        const activeStyle = isActive ? `style="background-color: ${activeBgColor}; border-left-color: ${selectedColor};"` : '';
+        return `
+        <div class="smarttab-item ${isActive ? 'active' : ''}" 
+             data-index="${index}"
+             ${activeStyle}>
+          <span class="smarttab-number" ${isActive ? `style="background: ${selectedColor};"` : ''}>${index + 1}</span>
+          <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}</span>
         </div>
-      `).join('');
+      `;
+      }).join('');
       
       // Re-attach click handlers after updating HTML
       attachPopupItemHandlers();
@@ -772,6 +1012,7 @@
       popupElement.style.display = 'none';
     }
     hideStatsPopup();
+    hideColorPickerPopup();
     // Reset current index so next Tab press triggers fresh detection
     currentIndex = -1;
   }
@@ -839,6 +1080,7 @@
     hidePopup();
     removeLassoEffect(); // Remove lasso when closing navigation
     hideStatsPopup();
+    hideColorPickerPopup();
     // Clear detected buttons so they're re-detected on next Tab press
     detectedButtons = [];
     currentIndex = -1;
@@ -1014,6 +1256,9 @@
 
   // Initialize
   function init() {
+    // Load saved color preference
+    loadSavedColor();
+    
     // Detect buttons on page load (with a small delay to let page settle)
     setTimeout(() => {
       detectedButtons = detectProminentButtons();

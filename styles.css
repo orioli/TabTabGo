@@ -53,7 +53,8 @@
 
 .smarttab-download,
 .smarttab-close,
-.smarttab-stats {
+.smarttab-stats,
+.smarttab-color-picker {
   background: none;
   border: none;
   color: white;
@@ -72,7 +73,8 @@
 
 .smarttab-download:hover,
 .smarttab-close:hover,
-.smarttab-stats:hover {
+.smarttab-stats:hover,
+.smarttab-color-picker:hover {
   background-color: rgba(255, 255, 255, 0.2);
 }
 
@@ -190,5 +192,50 @@
 
 .smarttab-list::-webkit-scrollbar-thumb:hover {
   background: #999;
+}
+
+/* Color picker popup */
+#smarttab-color-picker-popup {
+  position: absolute;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.15);
+  padding: 12px;
+  display: none;
+  z-index: 1000000;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.smarttab-color-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+
+.smarttab-color-option {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: bold;
+  font-size: 14px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.smarttab-color-option:hover {
+  transform: scale(1.1);
+  border-color: rgba(0, 0, 0, 0.3);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.smarttab-color-option.selected {
+  border-color: rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 0 2px white, 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
