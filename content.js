@@ -34,6 +34,203 @@
   const LASSO_GLOW_WIDTH = 6; // Width of the lasso glow effect in pixels
   const PIXELS_PER_ACCEPTED = 600; // Estimated distance saved per accepted suggestion (px)
   const MAX_TOP_BUTTONS = 5; // Maximum number of top buttons to show
+  
+  // Stats tracking (JavaScript version of statsStore.ts)
+  const STATS_STORAGE_KEY = 'tabtabgo_stats';
+  let statsCache = null;
+  let statsInitialized = false;
+  let statsWriteTimer = null;
+  const STATS_WRITE_DEBOUNCE_MS = 500;
+  
+  // Initialize stats store
+  async function initStatsStore() {
+    if (statsInitialized && statsCache !== null) return;
+    
+    try {
+      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+        const result = await chrome.storage.local.get(STATS_STORAGE_KEY);
+        const storedData = result[STATS_STORAGE_KEY];
+        
+        if (storedData && typeof storedData === 'object') {
+          statsCache = storedData;
+        } else {
+          statsCache = {};
+        }
+      } else {
+        statsCache = {};
+      }
+      statsInitialized = true;
+    } catch (error) {
+      console.error('[SmartTab] Error loading stats from storage:', error);
+      statsCache = {};
+      statsInitialized = true;
+    }
+  }
+  
+  // Ensure stats store is initialized (lazy init)
+  async function ensureStatsInitialized() {
+    if (!statsInitialized || statsCache === null) {
+      await initStatsStore();
+    }
+  }
+  
+  // Generate page key from current location
+  function makePageKey() {
+    try {
+      const hostname = window.location.hostname || 'unknown';
+      const pathname = window.location.pathname || '';
+      // Use hostname + first part of pathname (e.g., "gmail.com/inbox" or "gmail.com/compose")
+      const pathParts = pathname.split('/').filter(p => p);
+      const pageIdentifier = pathParts.length > 0 ? pathParts[0] : 'root';
+      return `${hostname}/${pageIdentifier}`;
+    } catch (error) {
+      return window.location.hostname || 'unknown';
+    }
+  }
+  
+  // Get element key from button (use text as key)
+  function getElementKeyForButton(button) {
+    if (!button) return 'Unknown';
+    // Use button text, cleaned up
+    const text = button.text || 'Unknown';
+    // Remove extra whitespace and limit length
+    return text.trim().substring(0, 100) || 'Unknown';
+  }
+  
+  // Schedule debounced write to storage
+  function scheduleStatsWrite() {
+    if (statsWriteTimer !== null) {
+      clearTimeout(statsWriteTimer);
+    }
+    
+    statsWriteTimer = setTimeout(async () => {
+      if (statsCache !== null) {
+        try {
+          if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
+            await chrome.storage.local.set({ [STATS_STORAGE_KEY]: statsCache });
+          }
+        } catch (error) {
+          console.error('[SmartTab] Error saving stats to storage:', error);
+        }
+      }
+      statsWriteTimer = null;
+    }, STATS_WRITE_DEBOUNCE_MS);
+  }
+  
+  // Ensure entry exists for [pageKey][elementKey]
+  function ensureStatsEntry(pageKey, elementKey) {
+    if (statsCache === null) {
+      statsCache = {};
+    }
+    
+    if (!statsCache[pageKey]) {
+      statsCache[pageKey] = {};
+      // Initialize total selections counter for this page
+      statsCache[pageKey].__totalSelections__ = 0;
+    }
+    
+    if (!statsCache[pageKey][elementKey]) {
+      statsCache[pageKey][elementKey] = {
+        shown: 0,
+        clicked: 0
+      };
+    }
+  }
+  
+  // Record total selections (Enter/Spacebar presses) for a page
+  async function recordTotalSelection(pageKey) {
+    await ensureStatsInitialized();
+    
+    if (statsCache === null) {
+      statsCache = {};
+    }
+    
+    if (!statsCache[pageKey]) {
+      statsCache[pageKey] = {};
+      statsCache[pageKey].__totalSelections__ = 0;
+    }
+    
+    if (statsCache[pageKey].__totalSelections__ === undefined) {
+      statsCache[pageKey].__totalSelections__ = 0;
+    }
+    
+    statsCache[pageKey].__totalSelections__++;
+    scheduleStatsWrite();
+  }
+  
+  // Record when a button is shown as a candidate
+  async function recordButtonShown(pageKey, elementKey) {
+    await ensureStatsInitialized();
+    
+    ensureStatsEntry(pageKey, elementKey);
+    
+    if (statsCache && statsCache[pageKey] && statsCache[pageKey][elementKey]) {
+      statsCache[pageKey][elementKey].shown++;
+      scheduleStatsWrite();
+    }
+  }
+  
+  // Record when a button is actually clicked
+  async function recordButtonClicked(pageKey, elementKey) {
+    await ensureStatsInitialized();
+    
+    ensureStatsEntry(pageKey, elementKey);
+    
+    if (statsCache && statsCache[pageKey] && statsCache[pageKey][elementKey]) {
+      statsCache[pageKey][elementKey].clicked++;
+      scheduleStatsWrite();
+    }
+  }
+  
+  // Calculates the click percentage (clicked / (total clicks + total selections of the menu (enter or spacebar)) × 100)
+  function getButtonClickPercentage(pageKey, elementKey) {
+    // Ensure stats are initialized (synchronous check)
+    if (!statsInitialized || !statsCache) {
+      return null;
+    }
+    
+    if (!statsCache[pageKey] || !statsCache[pageKey][elementKey]) {
+      return null;
+    }
+    
+    const stats = statsCache[pageKey][elementKey];
+    const totalSelections = statsCache[pageKey].__totalSelections__ || 0;
+    
+    // Need at least one selection to calculate percentage
+    if (totalSelections === 0) {
+      return null;
+    }
+    
+    // Calculate percentage: clicked / totalSelections × 100
+    const percentage = (stats.clicked / totalSelections) * 100;
+    
+    // Format to 2 significant digits
+    // Use toPrecision(2) which handles all cases correctly
+    const formatted = parseFloat(percentage.toPrecision(2));
+    
+    // If it's 100 or above, just return 100
+    if (formatted >= 100) {
+      return 100;
+    }
+    
+    return formatted;
+  }
+  
+  // Get button click count
+  function getButtonClickCount(pageKey, elementKey) {
+    // Ensure stats are initialized (synchronous check)
+    if (!statsInitialized || !statsCache) {
+      return null;
+    }
+    
+    if (!statsCache[pageKey] || !statsCache[pageKey][elementKey]) {
+      return null;
+    }
+    
+    const stats = statsCache[pageKey][elementKey];
+    return stats.clicked || 0;
+  }
+  
   function formatDateTime(date) {
     return date.toLocaleString(undefined, {
       month: 'short',
@@ -892,7 +1089,7 @@
         <div class="smarttab-header-actions">
           <button class="smarttab-color-picker" id="smarttab-color-picker-btn" title="Change color">🎨</button>
           <button class="smarttab-stats" id="smarttab-stats-btn" title="Session stats">📊</button>
-          <button class="smarttab-download" id="smarttab-download-btn" title="Download logs">⬇</button>
+          <button class="smarttab-download" id="smarttab-download-btn" title="Download stats & logs">💾</button>
           <button class="smarttab-close" id="smarttab-close-btn" title="Close">×</button>
         </div>
       </div>
@@ -901,12 +1098,28 @@
           const isActive = index === currentIndex;
           const activeBgColor = isActive ? getLightBackgroundColor(selectedColor) : '';
           const activeStyle = isActive ? `style="background-color: ${activeBgColor}; border-left-color: ${selectedColor};"` : '';
+          
+          // Get click percentage and count for this button
+          let statsText = '';
+          if (!btn.isFake) {
+            const pageKey = makePageKey();
+            const elementKey = getElementKeyForButton(btn);
+            const percentage = getButtonClickPercentage(pageKey, elementKey);
+            const count = getButtonClickCount(pageKey, elementKey);
+            
+            if (percentage !== null && count !== null && count > 0) {
+              statsText = ` (${percentage}%) ${count}`;
+            } else if (count !== null && count > 0) {
+              statsText = ` ${count}`;
+            }
+          }
+          
           return `
           <div class="smarttab-item ${isActive ? 'active' : ''}" 
                data-index="${index}"
                ${activeStyle}>
             <span class="smarttab-number" ${isActive ? `style="background: ${selectedColor};"` : ''}>${index + 1}</span>
-            <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}</span>
+            <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}${statsText}</span>
           </div>
         `;
         }).join('')}
@@ -914,6 +1127,15 @@
     `;
 
     document.body.appendChild(popupElement);
+
+    // Record all shown buttons
+    const pageKey = makePageKey();
+    detectedButtons.forEach(button => {
+      if (!button.isFake) {
+        const elementKey = getElementKeyForButton(button);
+        recordButtonShown(pageKey, elementKey);
+      }
+    });
 
     // Close button handler
     const closeBtn = popupElement.querySelector('#smarttab-close-btn');
@@ -961,15 +1183,40 @@
         const isActive = index === currentIndex;
         const activeBgColor = isActive ? getLightBackgroundColor(selectedColor) : '';
         const activeStyle = isActive ? `style="background-color: ${activeBgColor}; border-left-color: ${selectedColor};"` : '';
+        
+        // Get click percentage and count for this button
+        let statsText = '';
+        if (!btn.isFake) {
+          const pageKey = makePageKey();
+          const elementKey = getElementKeyForButton(btn);
+          const percentage = getButtonClickPercentage(pageKey, elementKey);
+          const count = getButtonClickCount(pageKey, elementKey);
+          
+          if (percentage !== null && count !== null && count > 0) {
+            statsText = ` (${percentage}%) ${count}`;
+          } else if (count !== null && count > 0) {
+            statsText = ` ${count}`;
+          }
+        }
+        
         return `
         <div class="smarttab-item ${isActive ? 'active' : ''}" 
              data-index="${index}"
              ${activeStyle}>
           <span class="smarttab-number" ${isActive ? `style="background: ${selectedColor};"` : ''}>${index + 1}</span>
-          <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}</span>
+          <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}${statsText}</span>
         </div>
       `;
       }).join('');
+      
+      // Record all shown buttons when popup is updated
+      const pageKey = makePageKey();
+      detectedButtons.forEach(button => {
+        if (!button.isFake) {
+          const elementKey = getElementKeyForButton(button);
+          recordButtonShown(pageKey, elementKey);
+        }
+      });
       
       // Re-attach click handlers after updating HTML
       attachPopupItemHandlers();
@@ -1046,28 +1293,71 @@
     }
   }
 
-  // Export log to file (can be called manually or automatically)
-  function exportLogToFile() {
-    const logContent = {
-      session: {
-        startTime: logData.startTime,
-        endTime: new Date().toISOString(),
-        totalTabPresses: logData.tabPresses,
-        totalSuggestionsAccepted: logData.suggestionsAccepted
-      },
-      acceptedSuggestions: logData.acceptedSuggestions
-    };
-    
-    const logText = JSON.stringify(logContent, null, 2);
-    const blob = new Blob([logText], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `smarttab-log-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  // Export log and stats to file (can be called manually or automatically)
+  async function exportLogToFile() {
+    try {
+      // Get session log data
+      const logContent = {
+        session: {
+          startTime: logData.startTime,
+          endTime: new Date().toISOString(),
+          totalTabPresses: logData.tabPresses,
+          totalSuggestionsAccepted: logData.suggestionsAccepted
+        },
+        acceptedSuggestions: logData.acceptedSuggestions
+      };
+      
+      // Get stats data from chrome.storage.local
+      let statsData = {};
+      try {
+        const result = await chrome.storage.local.get('tabtabgo_stats');
+        if (result.tabtabgo_stats && typeof result.tabtabgo_stats === 'object') {
+          statsData = result.tabtabgo_stats;
+        }
+      } catch (error) {
+        console.error('[SmartTab] Error loading stats for export:', error);
+      }
+      
+      // Combine both datasets
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        sessionLog: logContent,
+        buttonStats: statsData
+      };
+      
+      const logText = JSON.stringify(exportData, null, 2);
+      const blob = new Blob([logText], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `smarttab-data-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('[SmartTab] Error exporting data:', error);
+      // Fallback to just session log if stats fail
+      const logContent = {
+        session: {
+          startTime: logData.startTime,
+          endTime: new Date().toISOString(),
+          totalTabPresses: logData.tabPresses,
+          totalSuggestionsAccepted: logData.suggestionsAccepted
+        },
+        acceptedSuggestions: logData.acceptedSuggestions
+      };
+      const logText = JSON.stringify(logContent, null, 2);
+      const blob = new Blob([logText], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `smarttab-log-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   }
 
   // Close smart navigation (hide popup and reset state)
@@ -1211,6 +1501,16 @@
             url: window.location.href
           });
           
+          // Record total selection (Enter/Spacebar press) for this page
+          const pageKey = makePageKey();
+          recordTotalSelection(pageKey);
+          
+          // Record button click in stats
+          if (!button.isFake) {
+            const elementKey = getElementKeyForButton(button);
+            recordButtonClicked(pageKey, elementKey);
+          }
+          
           // Save log silently to storage periodically (every 5 accepted suggestions)
           if (logData.suggestionsAccepted % 5 === 0) {
             saveLogToStorage();
@@ -1258,6 +1558,9 @@
   function init() {
     // Load saved color preference
     loadSavedColor();
+    
+    // Initialize stats store
+    initStatsStore();
     
     // Detect buttons on page load (with a small delay to let page settle)
     setTimeout(() => {
