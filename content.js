@@ -15,6 +15,46 @@
   let colorPickerPopupElement = null;
   let colorPickerOutsideClickHandler = null;
   let selectedColor = '#10b981'; // Default emerald green
+  
+  // Listen for messages from popup
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'exportStats') {
+      try {
+        exportLogToFile();
+        sendResponse({ success: true });
+      } catch (error) {
+        console.error('Error exporting stats:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+      return true; // Keep channel open for async response
+    } else if (request.action === 'toggleNavigation') {
+      try {
+        const wasActive = currentIndex >= 0 && (currentChordElement !== null || currentLassoElement !== null);
+        
+        if (wasActive) {
+          // Navigation is active, close it
+          closeSmartNavigation();
+          sendResponse({ success: true, navigationActive: false });
+        } else {
+          // Navigation is not active, start it
+          detectedButtons = detectProminentButtons();
+          if (detectedButtons.length > 0) {
+            currentIndex = -1; // Reset to start
+            focusNextButton(); // This will show chord and lasso
+            sendResponse({ success: true, navigationActive: true });
+          } else {
+            sendResponse({ success: false, error: 'No buttons detected on this page' });
+          }
+        }
+      } catch (error) {
+        console.error('Error toggling navigation:', error);
+        sendResponse({ success: false, error: error.message });
+      }
+      return true; // Keep channel open for async response
+    }
+    return false;
+  });
+  
   // Color palette - up to 20 colors including pink, yellow, lime, teal, emerald green, and pastels
   const COLOR_PALETTE = [
     '#f472b6', // mypink
@@ -33,7 +73,7 @@
   const LASSO_BORDER_WIDTH = 4; // Width of the lasso border in pixels
   const LASSO_GLOW_WIDTH = 6; // Width of the lasso glow effect in pixels
   const PIXELS_PER_ACCEPTED = 600; // Estimated distance saved per accepted suggestion (px)
-  const MAX_TOP_BUTTONS = 5; // Maximum number of top buttons to show
+  const MAX_TOP_BUTTONS = 15; // Maximum number of top buttons to show
   
   // Stats tracking (JavaScript version of statsStore.ts)
   const STATS_STORAGE_KEY = 'tabtabgo_stats';
@@ -428,6 +468,11 @@
       updateLassoColor(color);
     }
     
+    // Update existing chord if present
+    if (currentChordElement) {
+      updateChordColor(color);
+    }
+    
     // Save to storage
     if (typeof chrome !== 'undefined' && chrome.storage) {
       chrome.storage.local.set({ smarttabColor: color });
@@ -443,30 +488,40 @@
   function updateLassoColor(color) {
     if (!currentLassoElement) return;
     
-    // Create a darker version for contrast
+    // Create a lighter version for glow effect
     const rgb = hexToRgb(color);
-    const darkerColor = `rgb(${Math.max(0, rgb.r - 30)}, ${Math.max(0, rgb.g - 30)}, ${Math.max(0, rgb.b - 30)})`;
     const lighterColor = `rgb(${Math.min(255, rgb.r + 50)}, ${Math.min(255, rgb.g + 50)}, ${Math.min(255, rgb.b + 50)})`;
     
-    // Update pattern
-    const pattern = currentLassoElement.querySelector('pattern[id="emerald-stripes"]');
-    if (pattern) {
-      const rect1 = pattern.querySelector('rect:nth-child(1)');
-      const rect2 = pattern.querySelector('rect:nth-child(2)');
-      if (rect1) rect1.setAttribute('fill', lighterColor);
-      if (rect2) rect2.setAttribute('fill', darkerColor);
-    }
-    
-    // Update glow
-    const glowRect = currentLassoElement.querySelector('rect[filter="url(#blur-filter)"]');
+    // Update glow (the rect with filter)
+    const glowRect = currentLassoElement.querySelector('rect[filter]');
     if (glowRect) {
       glowRect.setAttribute('stroke', lighterColor);
     }
     
-    // Update border
-    const lassoRect = currentLassoElement.querySelector('rect[stroke="url(#emerald-stripes)"]');
-    if (lassoRect) {
-      // Pattern is already updated above
+    // Update border (the rect without filter - solid color border)
+    const rects = currentLassoElement.querySelectorAll('rect');
+    rects.forEach(rect => {
+      if (!rect.hasAttribute('filter')) {
+        rect.setAttribute('stroke', color);
+      }
+    });
+  }
+  
+  function updateChordColor(color) {
+    if (!currentChordElement) return;
+    
+    const chordColor = hexToRgba(color, 0.8);
+    
+    // Update glow path
+    const glowPath = currentChordElement.querySelector('path[filter]');
+    if (glowPath) {
+      glowPath.setAttribute('stroke', color);
+    }
+    
+    // Update main chord path
+    const chordPath = currentChordElement.querySelector('path:not([filter])');
+    if (chordPath) {
+      chordPath.setAttribute('stroke', chordColor);
     }
   }
   
@@ -602,13 +657,12 @@
       
       // Add fake options
       const fakeOptions = [
-
         {
           element: null, // No real element
-          text: 'Want the AI-up version? join wait list here',
-          selector: 'fake-upgrade',
+          text: 'other',
+          selector: 'fake-other',
           isFake: true,
-          fakeAction: 'upgrade'
+          fakeAction: 'other'
         }
       ];
       
@@ -818,6 +872,14 @@
   let currentLassoTarget = null;
   let lassoUpdateHandler = null;
   
+  // Chord visualization (curved line from cursor to target)
+  let currentChordElement = null;
+  let currentChordTarget = null;
+  let chordUpdateHandler = null;
+  let chordMouseMoveHandler = null;
+  let currentMouseX = window.innerWidth / 2; // Default to center of screen
+  let currentMouseY = window.innerHeight / 2; // Default to center of screen
+  
   function updateLassoPosition() {
     if (!currentLassoElement || !currentLassoTarget) return;
     
@@ -877,39 +939,8 @@
     svg.style.pointerEvents = 'none';
     svg.style.zIndex = '999998';
     
-    // Create defs for patterns and gradients
+    // Create defs for filters only (no animated pattern)
     const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-    
-    // Animated stripes pattern
-    const pattern = document.createElementNS('http://www.w3.org/2000/svg', 'pattern');
-    pattern.setAttribute('id', 'emerald-stripes');
-    pattern.setAttribute('patternUnits', 'userSpaceOnUse');
-    pattern.setAttribute('width', '20');
-    pattern.setAttribute('height', '3');
-    
-    const rect1 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect1.setAttribute('width', '10');
-    rect1.setAttribute('height', '3');
-    rect1.setAttribute('fill', lighterColor);
-    
-    const rect2 = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-    rect2.setAttribute('x', '10');
-    rect2.setAttribute('width', '10');
-    rect2.setAttribute('height', '3');
-    rect2.setAttribute('fill', darkerColor);
-    
-    const animate = document.createElementNS('http://www.w3.org/2000/svg', 'animateTransform');
-    animate.setAttribute('attributeName', 'patternTransform');
-    animate.setAttribute('type', 'translate');
-    animate.setAttribute('from', '0 0');
-    animate.setAttribute('to', '20 0');
-    animate.setAttribute('dur', '0.5s');
-    animate.setAttribute('repeatCount', 'indefinite');
-    
-    pattern.appendChild(rect1);
-    pattern.appendChild(rect2);
-    pattern.appendChild(animate);
-    defs.appendChild(pattern);
     
     // Create filter for blur
     const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
@@ -935,7 +966,7 @@
     glowRect.setAttribute('opacity', '0.6'); // Increased opacity for better visibility
     glowRect.setAttribute('filter', 'url(#blur-filter)');
     
-    // Create rounded rectangle with lasso effect
+    // Create rounded rectangle with lasso effect (static border, no animation)
     const lassoRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     lassoRect.setAttribute('x', rectX);
     lassoRect.setAttribute('y', rectY);
@@ -943,7 +974,7 @@
     lassoRect.setAttribute('height', rectHeight);
     lassoRect.setAttribute('rx', '6');
     lassoRect.setAttribute('ry', '6');
-    lassoRect.setAttribute('stroke', 'url(#emerald-stripes)');
+    lassoRect.setAttribute('stroke', selectedColor);
     lassoRect.setAttribute('stroke-width', LASSO_BORDER_WIDTH);
     lassoRect.setAttribute('fill', 'none');
     lassoRect.style.opacity = '1';
@@ -973,6 +1004,212 @@
     }
     currentLassoTarget = null;
   }
+  
+  // Create chord visualization (curved line from cursor to target button)
+  function createChordEffect(element, mouseX, mouseY) {
+    // Remove any existing chord
+    removeChordEffect();
+    
+    currentChordTarget = element;
+    const rect = element.getBoundingClientRect();
+    
+    // Target button center point
+    const targetX = rect.left + rect.width / 2;
+    const targetY = rect.top + rect.height / 2;
+    
+    // Get color values based on selected color
+    const rgb = hexToRgb(selectedColor);
+    const chordColor = hexToRgba(selectedColor, 0.8);
+    const glowColor = hexToRgba(selectedColor, 0.4);
+    
+    // Create SVG overlay
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.id = 'smarttab-chord';
+    svg.style.position = 'fixed';
+    svg.style.top = '0';
+    svg.style.left = '0';
+    svg.style.width = '100%';
+    svg.style.height = '100%';
+    svg.style.pointerEvents = 'none';
+    svg.style.zIndex = '999998';
+    
+    // Create defs for filters
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    
+    // Create filter for blur/glow
+    const filter = document.createElementNS('http://www.w3.org/2000/svg', 'filter');
+    filter.setAttribute('id', 'chord-blur-filter');
+    const feGaussianBlur = document.createElementNS('http://www.w3.org/2000/svg', 'feGaussianBlur');
+    feGaussianBlur.setAttribute('stdDeviation', '3');
+    filter.appendChild(feGaussianBlur);
+    defs.appendChild(filter);
+    
+    svg.appendChild(defs);
+    
+    // Calculate control points for a smooth curved path
+    // Use a cubic bezier curve with control points that create a nice arc
+    const dx = targetX - mouseX;
+    const dy = targetY - mouseY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    // If distance is too small, use a straight line
+    if (distance < 5) {
+      const pathData = `M ${mouseX} ${mouseY} L ${targetX} ${targetY}`;
+      
+      // Create glow effect (blurred path behind)
+      const glowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      glowPath.setAttribute('d', pathData);
+      glowPath.setAttribute('stroke', selectedColor);
+      glowPath.setAttribute('stroke-width', '8');
+      glowPath.setAttribute('fill', 'none');
+      glowPath.setAttribute('opacity', '0.5');
+      glowPath.setAttribute('filter', 'url(#chord-blur-filter)');
+      
+      // Create main chord path
+      const chordPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      chordPath.setAttribute('d', pathData);
+      chordPath.setAttribute('stroke', chordColor);
+      chordPath.setAttribute('stroke-width', '3');
+      chordPath.setAttribute('fill', 'none');
+      chordPath.setAttribute('stroke-linecap', 'round');
+      chordPath.style.opacity = '1';
+      chordPath.style.transition = 'opacity 0.2s';
+      
+      svg.appendChild(glowPath);
+      svg.appendChild(chordPath);
+      document.body.appendChild(svg);
+      currentChordElement = svg;
+      
+      // Add scroll, resize, and mousemove handlers to update chord position
+      chordUpdateHandler = () => updateChordPosition();
+      window.addEventListener('scroll', chordUpdateHandler, true);
+      window.addEventListener('resize', chordUpdateHandler);
+      
+      // Track mouse movement
+      chordMouseMoveHandler = (e) => {
+        currentMouseX = e.clientX;
+        currentMouseY = e.clientY;
+        if (currentChordElement && currentChordTarget) {
+          updateChordPosition();
+        }
+      };
+      document.addEventListener('mousemove', chordMouseMoveHandler);
+      return;
+    }
+    
+    // Control point offset for curve (adjust for a nice arc)
+    const curvature = 0.6; // Controls how curved the path is (0-1)
+    const baseOffset = Math.min(distance * 0.3, 100); // Limit max offset
+    
+    // Perpendicular offset for control points (creates arc)
+    const perpX = -dy / distance * baseOffset * curvature;
+    const perpY = dx / distance * baseOffset * curvature;
+    
+    const cp1X = mouseX + (targetX - mouseX) * 0.35 + perpX;
+    const cp1Y = mouseY + (targetY - mouseY) * 0.35 + perpY;
+    const cp2X = mouseX + (targetX - mouseX) * 0.65 + perpX;
+    const cp2Y = mouseY + (targetY - mouseY) * 0.65 + perpY;
+    
+    // Create path string for cubic bezier curve
+    const pathData = `M ${mouseX} ${mouseY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${targetX} ${targetY}`;
+    
+    // Create glow effect (blurred path behind)
+    const glowPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    glowPath.setAttribute('d', pathData);
+    glowPath.setAttribute('stroke', selectedColor);
+    glowPath.setAttribute('stroke-width', '8');
+    glowPath.setAttribute('fill', 'none');
+    glowPath.setAttribute('opacity', '0.5');
+    glowPath.setAttribute('filter', 'url(#chord-blur-filter)');
+    
+    // Create main chord path
+    const chordPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    chordPath.setAttribute('d', pathData);
+    chordPath.setAttribute('stroke', chordColor);
+    chordPath.setAttribute('stroke-width', '3');
+    chordPath.setAttribute('fill', 'none');
+    chordPath.setAttribute('stroke-linecap', 'round');
+    chordPath.style.opacity = '1';
+    chordPath.style.transition = 'opacity 0.2s';
+    
+    svg.appendChild(glowPath);
+    svg.appendChild(chordPath);
+    
+    document.body.appendChild(svg);
+    currentChordElement = svg;
+    
+    // Add scroll, resize, and mousemove handlers to update chord position
+    chordUpdateHandler = () => updateChordPosition();
+    window.addEventListener('scroll', chordUpdateHandler, true);
+    window.addEventListener('resize', chordUpdateHandler);
+    
+    // Track mouse movement
+    chordMouseMoveHandler = (e) => {
+      currentMouseX = e.clientX;
+      currentMouseY = e.clientY;
+      if (currentChordElement && currentChordTarget) {
+        updateChordPosition();
+      }
+    };
+    document.addEventListener('mousemove', chordMouseMoveHandler);
+  }
+  
+  function updateChordPosition() {
+    if (!currentChordElement || !currentChordTarget) return;
+    
+    const rect = currentChordTarget.getBoundingClientRect();
+    const targetX = rect.left + rect.width / 2;
+    const targetY = rect.top + rect.height / 2;
+    
+    // Recalculate path with current mouse position
+    const dx = targetX - currentMouseX;
+    const dy = targetY - currentMouseY;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    let pathData;
+    
+    // If distance is too small, use a straight line
+    if (distance < 5) {
+      pathData = `M ${currentMouseX} ${currentMouseY} L ${targetX} ${targetY}`;
+    } else {
+      const curvature = 0.6;
+      const baseOffset = Math.min(distance * 0.3, 100);
+      
+      const perpX = -dy / distance * baseOffset * curvature;
+      const perpY = dx / distance * baseOffset * curvature;
+      
+      const cp1X = currentMouseX + (targetX - currentMouseX) * 0.35 + perpX;
+      const cp1Y = currentMouseY + (targetY - currentMouseY) * 0.35 + perpY;
+      const cp2X = currentMouseX + (targetX - currentMouseX) * 0.65 + perpX;
+      const cp2Y = currentMouseY + (targetY - currentMouseY) * 0.65 + perpY;
+      
+      pathData = `M ${currentMouseX} ${currentMouseY} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${targetX} ${targetY}`;
+    }
+    
+    // Update both paths
+    const glowPath = currentChordElement.querySelector('path[filter]');
+    const chordPath = currentChordElement.querySelector('path:not([filter])');
+    
+    if (glowPath) glowPath.setAttribute('d', pathData);
+    if (chordPath) chordPath.setAttribute('d', pathData);
+  }
+  
+  function removeChordEffect() {
+    if (chordUpdateHandler) {
+      window.removeEventListener('scroll', chordUpdateHandler, true);
+      window.removeEventListener('resize', chordUpdateHandler);
+      chordUpdateHandler = null;
+    }
+    if (chordMouseMoveHandler) {
+      document.removeEventListener('mousemove', chordMouseMoveHandler);
+      chordMouseMoveHandler = null;
+    }
+    if (currentChordElement) {
+      currentChordElement.remove();
+      currentChordElement = null;
+    }
+    currentChordTarget = null;
+  }
 
   // Handle fake button actions
   function handleFakeButtonAction(button) {
@@ -983,6 +1220,10 @@
       return true;
     } else if (button.fakeAction === 'upgrade') {
       window.open('https://forms.gle/kuzxpQ5DNdd6PbTVA', '_blank');
+      closeSmartNavigation();
+      return true;
+    } else if (button.fakeAction === 'other') {
+      // "other" is just for display - no special action needed
       closeSmartNavigation();
       return true;
     }
@@ -1000,9 +1241,8 @@
     
     // Handle fake buttons
     if (button.isFake) {
-      updatePopup();
-      showPopup();
-      resetAutoCloseTimer();
+      // For fake buttons, just close navigation
+      closeSmartNavigation();
       return true;
     }
     
@@ -1021,10 +1261,11 @@
       // Scroll into view
       button.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
       
-      // Add emerald lasso effect
+      // Add emerald lasso effect around button
       createLassoEffect(button.element);
       
-      // Lasso stays on until next selection or window close
+      // Add chord visualization from cursor to button
+      createChordEffect(button.element, currentMouseX, currentMouseY);
       
       // Refresh button list after focusing
       setTimeout(() => {
@@ -1032,8 +1273,6 @@
         if (currentIndex >= detectedButtons.length) {
           currentIndex = -1;
         }
-        updatePopup();
-        showPopup(); // Ensure popup stays visible after refresh
       }, 300);
       
       return true;
@@ -1104,6 +1343,18 @@
           if (!btn.isFake) {
             const pageKey = makePageKey();
             const elementKey = getElementKeyForButton(btn);
+            const percentage = getButtonClickPercentage(pageKey, elementKey);
+            const count = getButtonClickCount(pageKey, elementKey);
+            
+            if (percentage !== null && count !== null && count > 0) {
+              statsText = ` (${percentage}%) ${count}`;
+            } else if (count !== null && count > 0) {
+              statsText = ` ${count}`;
+            }
+          } else if (btn.fakeAction === 'other') {
+            // Show stats for "other" option
+            const pageKey = makePageKey();
+            const elementKey = 'other';
             const percentage = getButtonClickPercentage(pageKey, elementKey);
             const count = getButtonClickCount(pageKey, elementKey);
             
@@ -1197,6 +1448,18 @@
           } else if (count !== null && count > 0) {
             statsText = ` ${count}`;
           }
+        } else if (btn.fakeAction === 'other') {
+          // Show stats for "other" option
+          const pageKey = makePageKey();
+          const elementKey = 'other';
+          const percentage = getButtonClickPercentage(pageKey, elementKey);
+          const count = getButtonClickCount(pageKey, elementKey);
+          
+          if (percentage !== null && count !== null && count > 0) {
+            statsText = ` (${percentage}%) ${count}`;
+          } else if (count !== null && count > 0) {
+            statsText = ` ${count}`;
+          }
         }
         
         return `
@@ -1242,15 +1505,16 @@
     }, AUTO_CLOSE_MS);
   }
 
-  // Show popup
+  // Show popup (now hidden by default - chord visualization replaces it)
   function showPopup() {
-    if (popupElement) {
-      popupElement.style.display = 'block';
-    } else {
-      createPopup();
-    }
+    // Don't show popup - use chord visualization instead
+    // if (popupElement) {
+    //   popupElement.style.display = 'block';
+    // } else {
+    //   createPopup();
+    // }
     // Reset auto-close timer when popup is shown
-    resetAutoCloseTimer();
+    // resetAutoCloseTimer();
   }
 
   // Hide popup and reset navigation state
@@ -1369,6 +1633,7 @@
     }
     hidePopup();
     removeLassoEffect(); // Remove lasso when closing navigation
+    removeChordEffect(); // Remove chord when closing navigation
     hideStatsPopup();
     hideColorPickerPopup();
     // Clear detected buttons so they're re-detected on next Tab press
@@ -1401,9 +1666,8 @@
     
     // Handle fake buttons
     if (button.isFake) {
-      updatePopup();
-      showPopup();
-      resetAutoCloseTimer();
+      // For fake buttons, just close navigation
+      closeSmartNavigation();
       return true;
     }
     
@@ -1422,14 +1686,11 @@
       // Scroll into view
       button.element.scrollIntoView({ behavior: 'smooth', block: 'center' });
       
-      // Add emerald lasso effect
+      // Add emerald lasso effect around button
       createLassoEffect(button.element);
       
-      // Lasso stays on until next selection or window close
-      
-      updatePopup();
-      showPopup();
-      resetAutoCloseTimer(); // Reset timer on user interaction
+      // Add chord visualization from cursor to button
+      createChordEffect(button.element, currentMouseX, currentMouseY);
       
       return true;
     } catch (e) {
@@ -1438,9 +1699,13 @@
     }
   }
 
-  // Intercept Tab key
+  // Intercept Tab key, D key (forward), and S key (backward)
   function interceptTab(event) {
-    if (event.key === 'Tab' && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    const isTab = event.key === 'Tab';
+    const isD = event.key === 'd' || event.key === 'D';
+    const isS = event.key === 's' || event.key === 'S';
+    
+    if ((isTab || isD || isS) && !event.ctrlKey && !event.altKey && !event.metaKey) {
       // Only intercept if we're not in an input field
       const activeElement = document.activeElement;
       const isInputField = activeElement && (
@@ -1460,11 +1725,20 @@
           currentIndex = -1;
         }
         
-        const backward = event.shiftKey;
+        // Determine direction: Tab uses shiftKey, S is backward, D is forward
+        let backward = false;
+        if (isTab) {
+          backward = event.shiftKey;
+        } else if (isS) {
+          backward = true; // S key is backward
+        } else if (isD) {
+          backward = false; // D key is forward
+        }
+        
         if (focusNextButton(backward)) {
           // Log tab press
           logData.tabPresses++;
-          resetAutoCloseTimer(); // Reset timer on Tab key interaction
+          resetAutoCloseTimer(); // Reset timer on key interaction
           return false;
         }
       }
@@ -1472,12 +1746,13 @@
     return true;
   }
   
-  // Intercept Enter and Space keys to close smart navigation when button is activated
+  // Intercept Enter, Space, and W keys to close smart navigation when button is activated
   function interceptActivationKeys(event) {
     const isEnter = event.key === 'Enter';
     const isSpace = event.key === ' ' || event.code === 'Space' || event.key === 'Spacebar';
+    const isW = event.key === 'w' || event.key === 'W';
     
-    if ((isEnter || isSpace) && !event.ctrlKey && !event.altKey && !event.metaKey) {
+    if ((isEnter || isSpace || isW) && !event.ctrlKey && !event.altKey && !event.metaKey) {
       // Check if we have a current index selected
       if (currentIndex >= 0 && currentIndex < detectedButtons.length) {
         const button = detectedButtons[currentIndex];
@@ -1492,7 +1767,18 @@
         
         // Check if the currently focused element is one of our detected buttons
         const activeElement = document.activeElement;
-        if (activeElement && button.element === activeElement) {
+        const isButtonFocused = activeElement && button.element === activeElement;
+        
+        // For W key, always activate if we have a button selected (even if not focused)
+        // For Enter/Space, only activate if button is focused
+        if (isW || isButtonFocused) {
+          // Prevent default for W key to avoid typing 'w'
+          if (isW) {
+            event.preventDefault();
+            event.stopPropagation();
+            event.stopImmediatePropagation();
+          }
+          
           // Log accepted suggestion
           logData.suggestionsAccepted++;
           logData.acceptedSuggestions.push({
@@ -1501,7 +1787,7 @@
             url: window.location.href
           });
           
-          // Record total selection (Enter/Spacebar press) for this page
+          // Record total selection (Enter/Spacebar/W press) for this page
           const pageKey = makePageKey();
           recordTotalSelection(pageKey);
           
@@ -1516,23 +1802,59 @@
             saveLogToStorage();
           }
           
-          // Close smart navigation when Enter is pressed on a detected button
+          // For W key, programmatically click the button
+          if (isW) {
+            try {
+              // Ensure button is focused first
+              if (button.element.focus) {
+                button.element.focus();
+              }
+              // Click the button
+              if (button.element.click) {
+                button.element.click();
+              } else {
+                // Fallback: dispatch a click event
+                const clickEvent = new MouseEvent('click', {
+                  bubbles: true,
+                  cancelable: true,
+                  view: window
+                });
+                button.element.dispatchEvent(clickEvent);
+              }
+            } catch (e) {
+              console.error('Error clicking button with W key:', e);
+            }
+          }
+          
+          // Close smart navigation
           closeSmartNavigation();
-          // Let the Enter event proceed normally to activate the button
-          return true;
+          
+          // For Enter/Space, let the event proceed normally to activate the button
+          // For W, we've already clicked it, so prevent further propagation
+          return isW ? false : true;
         }
       }
     }
     return true;
   }
 
-  // Intercept ESC key to close smart navigation
+  // Intercept ESC and A keys to close smart navigation and hide chords/boxes
   function interceptEscape(event) {
-    if (event.key === 'Escape' && popupElement && popupElement.style.display !== 'none') {
-      event.preventDefault();
-      event.stopPropagation();
-      closeSmartNavigation();
-      return false;
+    const isEscape = event.key === 'Escape';
+    const isA = event.key === 'a' || event.key === 'A';
+    
+    if ((isEscape || isA) && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      // Check if chord or lasso is visible
+      const hasChord = currentChordElement !== null;
+      const hasLasso = currentLassoElement !== null;
+      
+      if (hasChord || hasLasso || (popupElement && popupElement.style.display !== 'none')) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        closeSmartNavigation();
+        return false;
+      }
     }
     return true;
   }
@@ -1562,15 +1884,16 @@
     // Initialize stats store
     initStatsStore();
     
+    // Initialize mouse position tracking
+    document.addEventListener('mousemove', (e) => {
+      currentMouseX = e.clientX;
+      currentMouseY = e.clientY;
+    });
+    
     // Detect buttons on page load (with a small delay to let page settle)
     setTimeout(() => {
       detectedButtons = detectProminentButtons();
-      
-      // Show popup initially
-      if (detectedButtons.length > 0) {
-        showPopup();
-        // Auto-close is now handled by resetAutoCloseTimer() in showPopup()
-      }
+      // Popup is no longer shown - chord visualization is used instead
     }, 1000);
     
     // Listen for Tab key - use capture phase and add to window for earliest interception
@@ -1585,6 +1908,49 @@
     // Listen for ESC key to close navigation
     window.addEventListener('keydown', interceptEscape, true);
     document.addEventListener('keydown', interceptEscape, true);
+    
+    // Track clicks outside detected buttons as "other"
+    document.addEventListener('click', (event) => {
+      const clickedElement = event.target;
+      
+      // Ignore clicks on our own UI elements
+      if (clickedElement.closest('#smarttab-popup') ||
+          clickedElement.closest('#smarttab-stats-popup') ||
+          clickedElement.closest('#smarttab-color-picker-popup') ||
+          clickedElement.closest('#smarttab-lasso')) {
+        return;
+      }
+      
+      // Check if the clicked element is one of the detected buttons (or a child of one)
+      let isDetectedButton = false;
+      for (const button of detectedButtons) {
+        if (button.element && (button.element === clickedElement || button.element.contains(clickedElement))) {
+          isDetectedButton = true;
+          break;
+        }
+      }
+      
+      // If it's not a detected button, check if it's a clickable element
+      if (!isDetectedButton) {
+        const tagName = clickedElement.tagName?.toLowerCase();
+        const role = clickedElement.getAttribute?.('role');
+        const isClickable = tagName === 'button' || 
+                           tagName === 'a' || 
+                           role === 'button' ||
+                           role === 'link' ||
+                           clickedElement.onclick !== null ||
+                           clickedElement.closest('button') ||
+                           clickedElement.closest('a[href]') ||
+                           clickedElement.closest('[role="button"]') ||
+                           clickedElement.closest('[role="link"]');
+        
+        if (isClickable) {
+          // Record as "other" click
+          const pageKey = makePageKey();
+          recordButtonClicked(pageKey, 'other');
+        }
+      }
+    }, true);
     
     // Re-detect buttons when DOM changes (for dynamic pages like Gmail)
     // Use debouncing to avoid excessive re-detection
