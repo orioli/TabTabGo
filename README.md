@@ -80,5 +80,8 @@ The extension:
   <img src="https://img.shields.io/badge/➡️%20Thanks%20Shinobit-green?style=for-the-badge" alt="Visit shinobit">
 </a>
 
+![Visitors](https://komarev.com/ghpvc/?username=orioli&color=blue)
+
+![Hits](https://hits.sh/github.com/orioli/tabtabgo.svg)
 
 
