@@ -1702,8 +1702,8 @@
   // Intercept Tab key, D key (forward), and S key (backward)
   function interceptTab(event) {
     const isTab = event.key === 'Tab';
-    const isD = event.key === 'd' || event.key === 'D';
-    const isS = event.key === 's' || event.key === 'S';
+    const isD = event.key === 'd' || event.key === 'D' || event.key === 'В' || event.key === 'в'; // Cyrillic В
+    const isS = event.key === 's' || event.key === 'S' || event.key === 'Ы' || event.key === 'ы'; // Cyrillic Ы
     
     if ((isTab || isD || isS) && !event.ctrlKey && !event.altKey && !event.metaKey) {
       // Only intercept if we're not in an input field
@@ -1750,7 +1750,7 @@
   function interceptActivationKeys(event) {
     const isEnter = event.key === 'Enter';
     const isSpace = event.key === ' ' || event.code === 'Space' || event.key === 'Spacebar';
-    const isW = event.key === 'w' || event.key === 'W';
+    const isW = event.key === 'w' || event.key === 'W' || event.key === 'Ц' || event.key === 'ц'; // Cyrillic Ц
     
     if ((isEnter || isSpace || isW) && !event.ctrlKey && !event.altKey && !event.metaKey) {
       // Check if we have a current index selected
@@ -1841,7 +1841,7 @@
   // Intercept ESC and A keys to close smart navigation and hide chords/boxes
   function interceptEscape(event) {
     const isEscape = event.key === 'Escape';
-    const isA = event.key === 'a' || event.key === 'A';
+    const isA = event.key === 'a' || event.key === 'A' || event.key === 'Ф' || event.key === 'ф'; // Cyrillic Ф
     
     if ((isEscape || isA) && !event.ctrlKey && !event.altKey && !event.metaKey) {
       // Check if chord or lasso is visible
