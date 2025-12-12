@@ -30,9 +30,10 @@
     }
     
     .subtitle {
-      font-size: 11px;
+      font-size: 9px;
       color: #666;
-      text-transform: lowercase;
+      line-height: 1.4;
+      word-wrap: break-word;
     }
     
     .button-group {
@@ -209,22 +210,38 @@
 </head>
 <body>
   <div class="header">
-    <div class="title">AITrackPad</div>
-    <div class="subtitle">by cesar guirao & jose berengueres</div>
+    <div class="title">TabTab Go - AI Track Pad NU</div>
+    <div class="subtitle">Kalinina, D., Guirao, C., & Berengueres, J. (2025). TabTab Go (v1.0.3) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo</div>
   </div>
   
   <div class="button-group">
-    <button id="toggle-btn" class="secondary">
-      <span>🔄</span>
-      <span>Toggle Navigation</span>
-    </button>
     <button id="howto-btn" class="secondary">
       <span>❓</span>
       <span>How to</span>
     </button>
+    <button id="cite-btn" class="secondary">
+      <span>📚</span>
+      <span>Cite</span>
+    </button>
   </div>
   
   <div id="status" class="status"></div>
+  
+  <!-- Modal for Citation -->
+  <div id="cite-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">How to Cite</div>
+        <button class="modal-close" id="cite-modal-close-btn">×</button>
+      </div>
+      <div style="font-size: 13px; line-height: 1.6; color: #374151;">
+        <p style="margin-bottom: 12px;">Kalinina, D., Guirao, C., & Berengueres, J. (2025). TabTab Go (v1.0.3) [Computer software]. Nazarbayev University.</p>
+        <p style="margin-top: 12px;">
+          <a href="https://github.com/orioli/tabtabgo" target="_blank" style="color: #10b981; text-decoration: none;">https://github.com/orioli/tabtabgo</a>
+        </p>
+      </div>
+    </div>
+  </div>
   
   <!-- Modal for How to -->
   <div id="howto-modal" class="modal-overlay">

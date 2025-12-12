@@ -11,32 +11,6 @@
     }, duration);
   }
   
-  function getCurrentTab() {
-    return new Promise((resolve) => {
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        resolve(tabs[0]);
-      });
-    });
-  }
-  
-  // Toggle Navigation button
-  document.getElementById('toggle-btn').addEventListener('click', async () => {
-    try {
-      const tab = await getCurrentTab();
-      chrome.tabs.sendMessage(tab.id, { action: 'toggleNavigation' }, (response) => {
-        if (chrome.runtime.lastError) {
-          showStatus('Error: ' + chrome.runtime.lastError.message);
-        } else if (response && response.success) {
-          showStatus(response.navigationActive ? 'Navigation activated' : 'Navigation deactivated');
-        } else {
-          showStatus('Toggle initiated');
-        }
-      });
-    } catch (error) {
-      showStatus('Error: ' + error.message);
-    }
-  });
-  
   // How to button - show modal
   const howtoBtn = document.getElementById('howto-btn');
   const howtoModal = document.getElementById('howto-modal');
@@ -54,6 +28,26 @@
   howtoModal.addEventListener('click', (e) => {
     if (e.target === howtoModal) {
       howtoModal.classList.remove('show');
+    }
+  });
+  
+  // Cite button - show citation modal
+  const citeBtn = document.getElementById('cite-btn');
+  const citeModal = document.getElementById('cite-modal');
+  const citeModalCloseBtn = document.getElementById('cite-modal-close-btn');
+  
+  citeBtn.addEventListener('click', () => {
+    citeModal.classList.add('show');
+  });
+  
+  citeModalCloseBtn.addEventListener('click', () => {
+    citeModal.classList.remove('show');
+  });
+  
+  // Close citation modal when clicking outside
+  citeModal.addEventListener('click', (e) => {
+    if (e.target === citeModal) {
+      citeModal.classList.remove('show');
     }
   });
 })();

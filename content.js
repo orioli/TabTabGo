@@ -1,5 +1,5 @@
 // SmartTab - Content Script
-// (c) Cesar Guirao 2025
+// Kalinina, D., Guirao, C., & Berengueres, J. (2025). TabTab Go (v1.0.3) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo
 (function() {
   'use strict';
 
