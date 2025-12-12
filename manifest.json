@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "AITrackPad NU - Berengueres & Guirao",
-  "version": "1.0.1",
+  "name": "TabTabGo - AI TrackPad NU - Berengueres (SEDS) & Guirao & Dina Kalinina (NUSOM)",
+  "version": "1.0.3",
   "description": "Intercepts Tab or D key to cycle through prominent buttons on the page",
   "icons": {
     "16": "icon16.png",
@@ -10,17 +10,53 @@
   },
   "permissions": [
     "activeTab",
-    "scripting",
-    "storage",
-    "downloads"
+    "scripting"
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "AITrackPad - Smart Button Navigation"
+    "default_title": "TabTabGo - Smart Button Navigation"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": [
+        "https://*.google.com/*",
+        "https://*.gmail.com/*",
+        "https://*.outlook.com/*",
+        "https://*.office.com/*",
+        "https://*.live.com/*",
+        "https://*.yahoo.com/*",
+        "https://*.proton.me/*",
+        "https://*.protonmail.com/*",
+        "https://*.mail.ru/*",
+        "https://mail.ru/*",
+        "https://*.yandex.com/*",
+        "https://*.yandex.ru/*",
+        "https://*.vk.com/*",
+        "https://vk.com/*",
+        "https://*.telegram.org/*",
+        "https://web.telegram.org/*",
+        "https://*.whatsapp.com/*",
+        "https://web.whatsapp.com/*",
+        "https://*.github.com/*",
+        "https://*.gitlab.com/*",
+        "https://*.bitbucket.org/*",
+        "https://*.slack.com/*",
+        "https://*.teams.microsoft.com/*",
+        "https://*.discord.com/*",
+        "https://*.notion.so/*",
+        "https://*.atlassian.net/*",
+        "https://*.jira.com/*",
+        "https://*.linkedin.com/*",
+        "https://*.twitter.com/*",
+        "https://*.x.com/*",
+        "https://*.facebook.com/*",
+        "https://*.wikipedia.org/*",
+        "https://*.medium.com/*",
+        "https://*.nscto.kz/*",
+        "https://nscto.kz/*",
+        "https://*.nu.edu.kz/*",
+        "https://nu.edu.kz/*"
+      ],
       "js": ["content.js"],
       "css": ["styles.css"],
       "run_at": "document_idle"

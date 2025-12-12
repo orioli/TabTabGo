@@ -19,24 +19,6 @@
     });
   }
   
-  // Export Stats button
-  document.getElementById('export-btn').addEventListener('click', async () => {
-    try {
-      const tab = await getCurrentTab();
-      chrome.tabs.sendMessage(tab.id, { action: 'exportStats' }, (response) => {
-        if (chrome.runtime.lastError) {
-          showStatus('Error: ' + chrome.runtime.lastError.message);
-        } else if (response && response.success) {
-          showStatus('Stats exported successfully!');
-        } else {
-          showStatus('Export initiated');
-        }
-      });
-    } catch (error) {
-      showStatus('Error: ' + error.message);
-    }
-  });
-  
   // Toggle Navigation button
   document.getElementById('toggle-btn').addEventListener('click', async () => {
     try {

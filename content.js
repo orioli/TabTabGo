@@ -9,25 +9,13 @@
   let detectionTimeout = null;
   let isDetecting = false;
   let autoCloseTimeout = null;
-  let statsPopupElement = null;
-  let statsOutsideClickHandler = null;
-  let statsAnchorElement = null;
   let colorPickerPopupElement = null;
   let colorPickerOutsideClickHandler = null;
   let selectedColor = '#10b981'; // Default emerald green
   
   // Listen for messages from popup
   chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    if (request.action === 'exportStats') {
-      try {
-        exportLogToFile();
-        sendResponse({ success: true });
-      } catch (error) {
-        console.error('Error exporting stats:', error);
-        sendResponse({ success: false, error: error.message });
-      }
-      return true; // Keep channel open for async response
-    } else if (request.action === 'toggleNavigation') {
+    if (request.action === 'toggleNavigation') {
       try {
         const wasActive = currentIndex >= 0 && (currentChordElement !== null || currentLassoElement !== null);
         
@@ -74,288 +62,6 @@
   const LASSO_GLOW_WIDTH = 6; // Width of the lasso glow effect in pixels
   const PIXELS_PER_ACCEPTED = 600; // Estimated distance saved per accepted suggestion (px)
   const MAX_TOP_BUTTONS = 15; // Maximum number of top buttons to show
-  
-  // Stats tracking (JavaScript version of statsStore.ts)
-  const STATS_STORAGE_KEY = 'tabtabgo_stats';
-  let statsCache = null;
-  let statsInitialized = false;
-  let statsWriteTimer = null;
-  const STATS_WRITE_DEBOUNCE_MS = 500;
-  
-  // Initialize stats store
-  async function initStatsStore() {
-    if (statsInitialized && statsCache !== null) return;
-    
-    try {
-      if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-        const result = await chrome.storage.local.get(STATS_STORAGE_KEY);
-        const storedData = result[STATS_STORAGE_KEY];
-        
-        if (storedData && typeof storedData === 'object') {
-          statsCache = storedData;
-        } else {
-          statsCache = {};
-        }
-      } else {
-        statsCache = {};
-      }
-      statsInitialized = true;
-    } catch (error) {
-      console.error('[SmartTab] Error loading stats from storage:', error);
-      statsCache = {};
-      statsInitialized = true;
-    }
-  }
-  
-  // Ensure stats store is initialized (lazy init)
-  async function ensureStatsInitialized() {
-    if (!statsInitialized || statsCache === null) {
-      await initStatsStore();
-    }
-  }
-  
-  // Generate page key from current location
-  function makePageKey() {
-    try {
-      const hostname = window.location.hostname || 'unknown';
-      const pathname = window.location.pathname || '';
-      // Use hostname + first part of pathname (e.g., "gmail.com/inbox" or "gmail.com/compose")
-      const pathParts = pathname.split('/').filter(p => p);
-      const pageIdentifier = pathParts.length > 0 ? pathParts[0] : 'root';
-      return `${hostname}/${pageIdentifier}`;
-    } catch (error) {
-      return window.location.hostname || 'unknown';
-    }
-  }
-  
-  // Get element key from button (use text as key)
-  function getElementKeyForButton(button) {
-    if (!button) return 'Unknown';
-    // Use button text, cleaned up
-    const text = button.text || 'Unknown';
-    // Remove extra whitespace and limit length
-    return text.trim().substring(0, 100) || 'Unknown';
-  }
-  
-  // Schedule debounced write to storage
-  function scheduleStatsWrite() {
-    if (statsWriteTimer !== null) {
-      clearTimeout(statsWriteTimer);
-    }
-    
-    statsWriteTimer = setTimeout(async () => {
-      if (statsCache !== null) {
-        try {
-          if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) {
-            await chrome.storage.local.set({ [STATS_STORAGE_KEY]: statsCache });
-          }
-        } catch (error) {
-          console.error('[SmartTab] Error saving stats to storage:', error);
-        }
-      }
-      statsWriteTimer = null;
-    }, STATS_WRITE_DEBOUNCE_MS);
-  }
-  
-  // Ensure entry exists for [pageKey][elementKey]
-  function ensureStatsEntry(pageKey, elementKey) {
-    if (statsCache === null) {
-      statsCache = {};
-    }
-    
-    if (!statsCache[pageKey]) {
-      statsCache[pageKey] = {};
-      // Initialize total selections counter for this page
-      statsCache[pageKey].__totalSelections__ = 0;
-    }
-    
-    if (!statsCache[pageKey][elementKey]) {
-      statsCache[pageKey][elementKey] = {
-        shown: 0,
-        clicked: 0
-      };
-    }
-  }
-  
-  // Record total selections (Enter/Spacebar presses) for a page
-  async function recordTotalSelection(pageKey) {
-    await ensureStatsInitialized();
-    
-    if (statsCache === null) {
-      statsCache = {};
-    }
-    
-    if (!statsCache[pageKey]) {
-      statsCache[pageKey] = {};
-      statsCache[pageKey].__totalSelections__ = 0;
-    }
-    
-    if (statsCache[pageKey].__totalSelections__ === undefined) {
-      statsCache[pageKey].__totalSelections__ = 0;
-    }
-    
-    statsCache[pageKey].__totalSelections__++;
-    scheduleStatsWrite();
-  }
-  
-  // Record when a button is shown as a candidate
-  async function recordButtonShown(pageKey, elementKey) {
-    await ensureStatsInitialized();
-    
-    ensureStatsEntry(pageKey, elementKey);
-    
-    if (statsCache && statsCache[pageKey] && statsCache[pageKey][elementKey]) {
-      statsCache[pageKey][elementKey].shown++;
-      scheduleStatsWrite();
-    }
-  }
-  
-  // Record when a button is actually clicked
-  async function recordButtonClicked(pageKey, elementKey) {
-    await ensureStatsInitialized();
-    
-    ensureStatsEntry(pageKey, elementKey);
-    
-    if (statsCache && statsCache[pageKey] && statsCache[pageKey][elementKey]) {
-      statsCache[pageKey][elementKey].clicked++;
-      scheduleStatsWrite();
-    }
-  }
-  
-  // Calculates the click percentage (clicked / (total clicks + total selections of the menu (enter or spacebar)) × 100)
-  function getButtonClickPercentage(pageKey, elementKey) {
-    // Ensure stats are initialized (synchronous check)
-    if (!statsInitialized || !statsCache) {
-      return null;
-    }
-    
-    if (!statsCache[pageKey] || !statsCache[pageKey][elementKey]) {
-      return null;
-    }
-    
-    const stats = statsCache[pageKey][elementKey];
-    const totalSelections = statsCache[pageKey].__totalSelections__ || 0;
-    
-    // Need at least one selection to calculate percentage
-    if (totalSelections === 0) {
-      return null;
-    }
-    
-    // Calculate percentage: clicked / totalSelections × 100
-    const percentage = (stats.clicked / totalSelections) * 100;
-    
-    // Format to 2 significant digits
-    // Use toPrecision(2) which handles all cases correctly
-    const formatted = parseFloat(percentage.toPrecision(2));
-    
-    // If it's 100 or above, just return 100
-    if (formatted >= 100) {
-      return 100;
-    }
-    
-    return formatted;
-  }
-  
-  // Get button click count
-  function getButtonClickCount(pageKey, elementKey) {
-    // Ensure stats are initialized (synchronous check)
-    if (!statsInitialized || !statsCache) {
-      return null;
-    }
-    
-    if (!statsCache[pageKey] || !statsCache[pageKey][elementKey]) {
-      return null;
-    }
-    
-    const stats = statsCache[pageKey][elementKey];
-    return stats.clicked || 0;
-  }
-  
-  function formatDateTime(date) {
-    return date.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  }
-  
-  function computeStatsSummary() {
-    const startDate = new Date(logData.startTime);
-    const now = new Date();
-    const hoursElapsed = Math.max((now - startDate) / 3600000, 0);
-    const untraveledPixels = logData.suggestionsAccepted * PIXELS_PER_ACCEPTED;
-    
-    return {
-      startDateLabel: isNaN(startDate.getTime()) ? 'n/a' : formatDateTime(startDate),
-      currentDateLabel: formatDateTime(now),
-      hoursElapsedLabel: hoursElapsed.toFixed(1),
-      tabPresses: logData.tabPresses,
-      acceptedSuggestions: logData.suggestionsAccepted,
-      untraveledPixelsK: (untraveledPixels / 1000).toFixed(1)
-    };
-  }
-  
-  function hideStatsPopup() {
-    if (statsOutsideClickHandler) {
-      document.removeEventListener('click', statsOutsideClickHandler, true);
-      statsOutsideClickHandler = null;
-    }
-    if (statsPopupElement) {
-      statsPopupElement.remove();
-      statsPopupElement = null;
-    }
-    statsAnchorElement = null;
-  }
-  
-  function showStatsPopup(anchorElement) {
-    const stats = computeStatsSummary();
-    
-    if (!statsPopupElement) {
-      statsPopupElement = document.createElement('div');
-      statsPopupElement.id = 'smarttab-stats-popup';
-      document.body.appendChild(statsPopupElement);
-    }
-    
-    statsPopupElement.innerHTML = `
-      <div class="smarttab-stats-header">Session stats</div>
-      <div class="smarttab-stats-row"><span>Started</span><span>${stats.startDateLabel}</span></div>
-      <div class="smarttab-stats-row"><span>Now</span><span>${stats.currentDateLabel}</span></div>
-      <div class="smarttab-stats-row"><span>Hours</span><span>${stats.hoursElapsedLabel} h</span></div>
-      <div class="smarttab-stats-row"><span>Tab presses</span><span>${stats.tabPresses.toLocaleString()}</span></div>
-      <div class="smarttab-stats-row"><span>Accepted</span><span>${stats.acceptedSuggestions.toLocaleString()}</span></div>
-      <div class="smarttab-stats-row"><span>Untraveled</span><span>${stats.untraveledPixelsK}k px</span></div>
-    `;
-    
-    const anchorRect = anchorElement.getBoundingClientRect();
-    const popupWidth = 240;
-    statsPopupElement.style.position = 'absolute';
-    statsPopupElement.style.top = `${window.scrollY + anchorRect.bottom + 8}px`;
-    statsPopupElement.style.left = `${window.scrollX + anchorRect.right - popupWidth}px`;
-    statsPopupElement.style.width = `${popupWidth}px`;
-    statsPopupElement.style.display = 'block';
-    
-    statsAnchorElement = anchorElement;
-    
-    if (!statsOutsideClickHandler) {
-      statsOutsideClickHandler = (event) => {
-        if (!statsPopupElement) return;
-        if (statsPopupElement.contains(event.target)) return;
-        if (statsAnchorElement && statsAnchorElement.contains(event.target)) return;
-        hideStatsPopup();
-      };
-      document.addEventListener('click', statsOutsideClickHandler, true);
-    }
-  }
-  
-  function toggleStatsPopup(anchorElement) {
-    if (statsPopupElement && statsPopupElement.style.display === 'block') {
-      hideStatsPopup();
-    } else {
-      showStatsPopup(anchorElement);
-    }
-  }
   
   // Color picker functions
   function hideColorPickerPopup() {
@@ -565,15 +271,6 @@
       }
     }
   }
-  
-
-  // Micro logging
-  let logData = {
-    tabPresses: 0,
-    suggestionsAccepted: 0,
-    acceptedSuggestions: [],
-    startTime: new Date().toISOString()
-  };
 
   // Detect prominent buttons on the page
   function detectProminentButtons() {
@@ -1323,12 +1020,10 @@
       <div class="smarttab-header" style="background: ${selectedColor}">
         <div class="smarttab-title-section">
           <span class="smarttab-title">TabTab Go</span>
-          <span class="smarttab-copyright">by cesar guirao & jose berengueres</span>
+          <span class="smarttab-copyright">How to cite: Kalinina, D., Guirao, C., & Berengueres, J. (2025). TabTab Go (v1.0.3) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo</span>
         </div>
         <div class="smarttab-header-actions">
           <button class="smarttab-color-picker" id="smarttab-color-picker-btn" title="Change color">🎨</button>
-          <button class="smarttab-stats" id="smarttab-stats-btn" title="Session stats">📊</button>
-          <button class="smarttab-download" id="smarttab-download-btn" title="Download stats & logs">💾</button>
           <button class="smarttab-close" id="smarttab-close-btn" title="Close">×</button>
         </div>
       </div>
@@ -1338,39 +1033,12 @@
           const activeBgColor = isActive ? getLightBackgroundColor(selectedColor) : '';
           const activeStyle = isActive ? `style="background-color: ${activeBgColor}; border-left-color: ${selectedColor};"` : '';
           
-          // Get click percentage and count for this button
-          let statsText = '';
-          if (!btn.isFake) {
-            const pageKey = makePageKey();
-            const elementKey = getElementKeyForButton(btn);
-            const percentage = getButtonClickPercentage(pageKey, elementKey);
-            const count = getButtonClickCount(pageKey, elementKey);
-            
-            if (percentage !== null && count !== null && count > 0) {
-              statsText = ` (${percentage}%) ${count}`;
-            } else if (count !== null && count > 0) {
-              statsText = ` ${count}`;
-            }
-          } else if (btn.fakeAction === 'other') {
-            // Show stats for "other" option
-            const pageKey = makePageKey();
-            const elementKey = 'other';
-            const percentage = getButtonClickPercentage(pageKey, elementKey);
-            const count = getButtonClickCount(pageKey, elementKey);
-            
-            if (percentage !== null && count !== null && count > 0) {
-              statsText = ` (${percentage}%) ${count}`;
-            } else if (count !== null && count > 0) {
-              statsText = ` ${count}`;
-            }
-          }
-          
           return `
           <div class="smarttab-item ${isActive ? 'active' : ''}" 
                data-index="${index}"
                ${activeStyle}>
             <span class="smarttab-number" ${isActive ? `style="background: ${selectedColor};"` : ''}>${index + 1}</span>
-            <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}${statsText}</span>
+            <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}</span>
           </div>
         `;
         }).join('')}
@@ -1378,15 +1046,6 @@
     `;
 
     document.body.appendChild(popupElement);
-
-    // Record all shown buttons
-    const pageKey = makePageKey();
-    detectedButtons.forEach(button => {
-      if (!button.isFake) {
-        const elementKey = getElementKeyForButton(button);
-        recordButtonShown(pageKey, elementKey);
-      }
-    });
 
     // Close button handler
     const closeBtn = popupElement.querySelector('#smarttab-close-btn');
@@ -1401,22 +1060,6 @@
       colorPickerBtn.addEventListener('click', (event) => {
         event.stopPropagation();
         toggleColorPickerPopup(colorPickerBtn);
-      });
-    }
-    
-    const statsBtn = popupElement.querySelector('#smarttab-stats-btn');
-    if (statsBtn) {
-      statsBtn.addEventListener('click', (event) => {
-        event.stopPropagation();
-        toggleStatsPopup(statsBtn);
-      });
-    }
-    
-    // Download button handler
-    const downloadBtn = popupElement.querySelector('#smarttab-download-btn');
-    if (downloadBtn) {
-      downloadBtn.addEventListener('click', () => {
-        exportLogToFile();
       });
     }
     
@@ -1435,51 +1078,15 @@
         const activeBgColor = isActive ? getLightBackgroundColor(selectedColor) : '';
         const activeStyle = isActive ? `style="background-color: ${activeBgColor}; border-left-color: ${selectedColor};"` : '';
         
-        // Get click percentage and count for this button
-        let statsText = '';
-        if (!btn.isFake) {
-          const pageKey = makePageKey();
-          const elementKey = getElementKeyForButton(btn);
-          const percentage = getButtonClickPercentage(pageKey, elementKey);
-          const count = getButtonClickCount(pageKey, elementKey);
-          
-          if (percentage !== null && count !== null && count > 0) {
-            statsText = ` (${percentage}%) ${count}`;
-          } else if (count !== null && count > 0) {
-            statsText = ` ${count}`;
-          }
-        } else if (btn.fakeAction === 'other') {
-          // Show stats for "other" option
-          const pageKey = makePageKey();
-          const elementKey = 'other';
-          const percentage = getButtonClickPercentage(pageKey, elementKey);
-          const count = getButtonClickCount(pageKey, elementKey);
-          
-          if (percentage !== null && count !== null && count > 0) {
-            statsText = ` (${percentage}%) ${count}`;
-          } else if (count !== null && count > 0) {
-            statsText = ` ${count}`;
-          }
-        }
-        
         return `
         <div class="smarttab-item ${isActive ? 'active' : ''}" 
              data-index="${index}"
              ${activeStyle}>
           <span class="smarttab-number" ${isActive ? `style="background: ${selectedColor};"` : ''}>${index + 1}</span>
-          <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}${statsText}</span>
+          <span class="smarttab-text" ${isActive ? `style="color: ${selectedColor};"` : ''}>${escapeHtml(btn.text)}</span>
         </div>
       `;
       }).join('');
-      
-      // Record all shown buttons when popup is updated
-      const pageKey = makePageKey();
-      detectedButtons.forEach(button => {
-        if (!button.isFake) {
-          const elementKey = getElementKeyForButton(button);
-          recordButtonShown(pageKey, elementKey);
-        }
-      });
       
       // Re-attach click handlers after updating HTML
       attachPopupItemHandlers();
@@ -1522,106 +1129,9 @@
     if (popupElement) {
       popupElement.style.display = 'none';
     }
-    hideStatsPopup();
     hideColorPickerPopup();
     // Reset current index so next Tab press triggers fresh detection
     currentIndex = -1;
-  }
-  
-  // Save log silently to Chrome storage
-  function saveLogToStorage() {
-    const logContent = {
-      session: {
-        startTime: logData.startTime,
-        endTime: new Date().toISOString(),
-        totalTabPresses: logData.tabPresses,
-        totalSuggestionsAccepted: logData.suggestionsAccepted
-      },
-      acceptedSuggestions: logData.acceptedSuggestions
-    };
-    
-    // Save to Chrome storage silently
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      chrome.storage.local.set({
-        smarttabLog: logContent,
-        smarttabLogTimestamp: new Date().toISOString()
-      });
-    } else {
-      // Fallback to localStorage if Chrome API not available
-      try {
-        localStorage.setItem('smarttabLog', JSON.stringify(logContent));
-        localStorage.setItem('smarttabLogTimestamp', new Date().toISOString());
-      } catch (e) {
-        console.warn('Could not save log:', e);
-      }
-    }
-  }
-
-  // Export log and stats to file (can be called manually or automatically)
-  async function exportLogToFile() {
-    try {
-      // Get session log data
-      const logContent = {
-        session: {
-          startTime: logData.startTime,
-          endTime: new Date().toISOString(),
-          totalTabPresses: logData.tabPresses,
-          totalSuggestionsAccepted: logData.suggestionsAccepted
-        },
-        acceptedSuggestions: logData.acceptedSuggestions
-      };
-      
-      // Get stats data from chrome.storage.local
-      let statsData = {};
-      try {
-        const result = await chrome.storage.local.get('tabtabgo_stats');
-        if (result.tabtabgo_stats && typeof result.tabtabgo_stats === 'object') {
-          statsData = result.tabtabgo_stats;
-        }
-      } catch (error) {
-        console.error('[SmartTab] Error loading stats for export:', error);
-      }
-      
-      // Combine both datasets
-      const exportData = {
-        exportedAt: new Date().toISOString(),
-        sessionLog: logContent,
-        buttonStats: statsData
-      };
-      
-      const logText = JSON.stringify(exportData, null, 2);
-      const blob = new Blob([logText], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `smarttab-data-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error('[SmartTab] Error exporting data:', error);
-      // Fallback to just session log if stats fail
-      const logContent = {
-        session: {
-          startTime: logData.startTime,
-          endTime: new Date().toISOString(),
-          totalTabPresses: logData.tabPresses,
-          totalSuggestionsAccepted: logData.suggestionsAccepted
-        },
-        acceptedSuggestions: logData.acceptedSuggestions
-      };
-      const logText = JSON.stringify(logContent, null, 2);
-      const blob = new Blob([logText], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `smarttab-log-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
   }
 
   // Close smart navigation (hide popup and reset state)
@@ -1634,7 +1144,6 @@
     hidePopup();
     removeLassoEffect(); // Remove lasso when closing navigation
     removeChordEffect(); // Remove chord when closing navigation
-    hideStatsPopup();
     hideColorPickerPopup();
     // Clear detected buttons so they're re-detected on next Tab press
     detectedButtons = [];
@@ -1706,14 +1215,34 @@
     const isS = event.key === 's' || event.key === 'S' || event.key === 'Ы' || event.key === 'ы'; // Cyrillic Ы
     
     if ((isTab || isD || isS) && !event.ctrlKey && !event.altKey && !event.metaKey) {
-      // Only intercept if we're not in an input field
+      // Only intercept if we're not in an input field or text area
       const activeElement = document.activeElement;
-      const isInputField = activeElement && (
-        activeElement.tagName === 'INPUT' ||
-        activeElement.tagName === 'TEXTAREA' ||
-        activeElement.isContentEditable
-      );
+      
+      // Check if we're in a text input field
+      let isInputField = false;
+      if (activeElement) {
+        const tagName = activeElement.tagName;
+        const type = activeElement.type ? activeElement.type.toLowerCase() : '';
+        
+        // Check for textarea
+        if (tagName === 'TEXTAREA') {
+          isInputField = true;
+        }
+        // Check for input elements that accept text
+        else if (tagName === 'INPUT') {
+          // Don't intercept for text inputs, but allow for buttons, checkboxes, etc.
+          const textInputTypes = ['text', 'email', 'password', 'search', 'tel', 'url', 'number', 'date', 'datetime-local', 'month', 'time', 'week'];
+          if (textInputTypes.includes(type) || !type || type === '') {
+            isInputField = true;
+          }
+        }
+        // Check for contentEditable elements (rich text editors)
+        else if (activeElement.isContentEditable) {
+          isInputField = true;
+        }
+      }
 
+      // Only intercept if we're NOT in an input field
       if (!isInputField) {
         event.preventDefault();
         event.stopPropagation();
@@ -1736,8 +1265,6 @@
         }
         
         if (focusNextButton(backward)) {
-          // Log tab press
-          logData.tabPresses++;
           resetAutoCloseTimer(); // Reset timer on key interaction
           return false;
         }
@@ -1777,29 +1304,6 @@
             event.preventDefault();
             event.stopPropagation();
             event.stopImmediatePropagation();
-          }
-          
-          // Log accepted suggestion
-          logData.suggestionsAccepted++;
-          logData.acceptedSuggestions.push({
-            timestamp: new Date().toISOString(),
-            suggestionName: button.text || 'Unknown',
-            url: window.location.href
-          });
-          
-          // Record total selection (Enter/Spacebar/W press) for this page
-          const pageKey = makePageKey();
-          recordTotalSelection(pageKey);
-          
-          // Record button click in stats
-          if (!button.isFake) {
-            const elementKey = getElementKeyForButton(button);
-            recordButtonClicked(pageKey, elementKey);
-          }
-          
-          // Save log silently to storage periodically (every 5 accepted suggestions)
-          if (logData.suggestionsAccepted % 5 === 0) {
-            saveLogToStorage();
           }
           
           // For W key, programmatically click the button
@@ -1881,9 +1385,6 @@
     // Load saved color preference
     loadSavedColor();
     
-    // Initialize stats store
-    initStatsStore();
-    
     // Initialize mouse position tracking
     document.addEventListener('mousemove', (e) => {
       currentMouseX = e.clientX;
@@ -1915,7 +1416,6 @@
       
       // Ignore clicks on our own UI elements
       if (clickedElement.closest('#smarttab-popup') ||
-          clickedElement.closest('#smarttab-stats-popup') ||
           clickedElement.closest('#smarttab-color-picker-popup') ||
           clickedElement.closest('#smarttab-lasso')) {
         return;
@@ -1934,21 +1434,7 @@
       if (!isDetectedButton) {
         const tagName = clickedElement.tagName?.toLowerCase();
         const role = clickedElement.getAttribute?.('role');
-        const isClickable = tagName === 'button' || 
-                           tagName === 'a' || 
-                           role === 'button' ||
-                           role === 'link' ||
-                           clickedElement.onclick !== null ||
-                           clickedElement.closest('button') ||
-                           clickedElement.closest('a[href]') ||
-                           clickedElement.closest('[role="button"]') ||
-                           clickedElement.closest('[role="link"]');
-        
-        if (isClickable) {
-          // Record as "other" click
-          const pageKey = makePageKey();
-          recordButtonClicked(pageKey, 'other');
-        }
+        // Click tracking removed - no data collection
       }
     }, true);
     
@@ -1999,20 +1485,6 @@
       attributes: true,
       attributeFilter: ['class', 'style', 'role']
     });
-    
-    // Save log silently to storage when page is about to unload
-    window.addEventListener('beforeunload', () => {
-      if (logData.suggestionsAccepted > 0) {
-        saveLogToStorage();
-      }
-    });
-    
-    // Also save periodically (every 30 seconds) to ensure data is persisted
-    setInterval(() => {
-      if (logData.tabPresses > 0 || logData.suggestionsAccepted > 0) {
-        saveLogToStorage();
-      }
-    }, 30000);
   }
 
   // Start when DOM is ready
