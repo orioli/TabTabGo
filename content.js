@@ -1,5 +1,3 @@
-// SmartTab - Content Script
-// Kalinina, D., Guirao, C., & Berengueres, J. (2025). TabTab Go (v1.0.3) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo
 (function() {
   'use strict';
 
@@ -1020,7 +1018,7 @@
       <div class="smarttab-header" style="background: ${selectedColor}">
         <div class="smarttab-title-section">
           <span class="smarttab-title">TabTab Go</span>
-          <span class="smarttab-copyright">How to cite: Kalinina, D., Guirao, C., & Berengueres, J. (2025). TabTab Go (v1.0.3) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo</span>
+          <span class="smarttab-copyright">How to cite: Guirao, C., & Berengueres, J. (2025). TabTab Go (v1.0.5) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo</span>
         </div>
         <div class="smarttab-header-actions">
           <button class="smarttab-color-picker" id="smarttab-color-picker-btn" title="Change color">🎨</button>
