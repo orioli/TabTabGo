@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "TabTab Go - Smart Navigation",
+  "version": "1.0.5",
+  "description": "Enables keyboard-based navigation by cycling through prominent buttons",
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "permissions": [],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TabTab Go - Smart Navigation"
+  },
+  "content_scripts": [
+    {
+
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "css": ["styles.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
