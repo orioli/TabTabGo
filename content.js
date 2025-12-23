@@ -47,6 +47,11 @@
   const LASSO_GLOW_WIDTH = 6; // Width of the lasso glow effect in pixels
   const PIXELS_PER_ACCEPTED = 600; // Estimated distance saved per accepted suggestion (px)
   const MAX_TOP_BUTTONS = 15; // Maximum number of top buttons to show
+  // Get version from manifest.json (single source of truth)
+  const VERSION = (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getManifest) 
+    ? chrome.runtime.getManifest().version 
+    : '1.0.6'; // Fallback if manifest not available
+  const CITATION_TEXT = `Guirao, C., & Berengueres, J. (2025). TabTab Go (v${VERSION}) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo`;
   
   function hexToRgb(hex) {
     const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -818,7 +823,7 @@
       <div class="smarttab-header" style="background: ${selectedColor}">
         <div class="smarttab-title-section">
           <span class="smarttab-title">TabTab Go</span>
-          <span class="smarttab-copyright">How to cite: Guirao, C., & Berengueres, J. (2025). TabTab Go (v1.0.5) [Computer software]. Nazarbayev University. https://github.com/orioli/tabtabgo</span>
+          <span class="smarttab-copyright">How to cite: ${CITATION_TEXT}</span>
         </div>
         <div class="smarttab-header-actions">
           <button class="smarttab-close" id="smarttab-close-btn" title="Close">×</button>
@@ -995,6 +1000,33 @@
     }
   }
 
+  // Check if the active element is a text input field
+  function isTextInputField(activeElement) {
+    if (!activeElement) return false;
+    
+    const tagName = activeElement.tagName;
+    const type = activeElement.type ? activeElement.type.toLowerCase() : '';
+    
+    // Check for textarea
+    if (tagName === 'TEXTAREA') {
+      return true;
+    }
+    // Check for input elements that accept text
+    if (tagName === 'INPUT') {
+      // Don't intercept for text inputs, but allow for buttons, checkboxes, etc.
+      const textInputTypes = ['text', 'email', 'password', 'search', 'tel', 'url', 'number', 'date', 'datetime-local', 'month', 'time', 'week'];
+      if (textInputTypes.includes(type) || !type || type === '') {
+        return true;
+      }
+    }
+    // Check for contentEditable elements (rich text editors)
+    if (activeElement.isContentEditable) {
+      return true;
+    }
+    
+    return false;
+  }
+
   // Intercept Tab key, D key (forward), and S key (backward)
   function interceptTab(event) {
     const isTab = event.key === 'Tab';
@@ -1003,34 +1035,7 @@
     
     if ((isTab || isD || isS) && !event.ctrlKey && !event.altKey && !event.metaKey) {
       // Only intercept if we're not in an input field or text area
-      const activeElement = document.activeElement;
-      
-      // Check if we're in a text input field
-      let isInputField = false;
-      if (activeElement) {
-        const tagName = activeElement.tagName;
-        const type = activeElement.type ? activeElement.type.toLowerCase() : '';
-        
-        // Check for textarea
-        if (tagName === 'TEXTAREA') {
-          isInputField = true;
-        }
-        // Check for input elements that accept text
-        else if (tagName === 'INPUT') {
-          // Don't intercept for text inputs, but allow for buttons, checkboxes, etc.
-          const textInputTypes = ['text', 'email', 'password', 'search', 'tel', 'url', 'number', 'date', 'datetime-local', 'month', 'time', 'week'];
-          if (textInputTypes.includes(type) || !type || type === '') {
-            isInputField = true;
-          }
-        }
-        // Check for contentEditable elements (rich text editors)
-        else if (activeElement.isContentEditable) {
-          isInputField = true;
-        }
-      }
-
-      // Only intercept if we're NOT in an input field
-      if (!isInputField) {
+      if (!isTextInputField(document.activeElement)) {
         event.preventDefault();
         event.stopPropagation();
         event.stopImmediatePropagation(); // Stop other handlers from running
@@ -1065,6 +1070,11 @@
     const isEnter = event.key === 'Enter';
     const isSpace = event.key === ' ' || event.code === 'Space' || event.key === 'Spacebar';
     const isW = event.key === 'w' || event.key === 'W' || event.key === 'Ц' || event.key === 'ц'; // Cyrillic Ц
+    
+    // If W key is pressed in a text input field, allow normal typing
+    if (isW && isTextInputField(document.activeElement)) {
+      return true;
+    }
     
     if ((isEnter || isSpace || isW) && !event.ctrlKey && !event.altKey && !event.metaKey) {
       // Check if we have a current index selected
@@ -1133,6 +1143,12 @@
   function interceptEscape(event) {
     const isEscape = event.key === 'Escape';
     const isA = event.key === 'a' || event.key === 'A' || event.key === 'Ф' || event.key === 'ф'; // Cyrillic Ф
+    
+    // If A key is pressed in a text input field, allow normal typing
+    // Escape key should still work even in input fields (to close navigation)
+    if (isA && isTextInputField(document.activeElement)) {
+      return true;
+    }
     
     if ((isEscape || isA) && !event.ctrlKey && !event.altKey && !event.metaKey) {
       // Check if chord or lasso is visible

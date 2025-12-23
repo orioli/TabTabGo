@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TabTab Go - Smart Navigation",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Enables keyboard-based navigation by cycling through prominent buttons",
   "icons": {
     "16": "icon16.png",
